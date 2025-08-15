@@ -1,2 +1,3 @@
 # Budgeting
-This is a simple budgeting app with a login/pass (to save your data) that you can monitor your expenses and accounts. *PLEASE DO NOT PUT SENSITIVE INFO, THIS IS NOT ENCRYPTED NOR SECURE SO ONLY PUT INFORMATION YOU FEEL COMFORTABLE*
+A sleek, modern budgeting application with a dark mode interface featuring real-time transaction tracking, recurring payments management, and beautiful data visualizations.
+https://budgeting-3mi.pages.dev/
