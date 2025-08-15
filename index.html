@@ -142,6 +142,11 @@
             background: white;
         }
 
+        /* Special padding for password inputs to make room for eye icon */
+        input[type="password"] {
+            padding-right: 45px;
+        }
+
         input:focus, select:focus {
             outline: none;
             border-color: var(--primary);
@@ -151,6 +156,7 @@
         /* Password Toggle */
         .password-input-wrapper {
             position: relative;
+            width: 100%;
         }
 
         .password-toggle {
@@ -167,6 +173,9 @@
             align-items: center;
             justify-content: center;
             transition: color 0.3s;
+            width: 30px;
+            height: 30px;
+            z-index: 10;
         }
 
         .password-toggle:hover {
