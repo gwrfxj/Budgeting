@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>PenguinBudget - Smart Personal Finance Tracker</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
 
         :root {
@@ -202,6 +203,51 @@
                         0 0 20px rgba(255, 215, 0, 0.2);
         }
 
+        /* Type Toggle Buttons */
+        .type-toggle {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+
+        .type-btn {
+            padding: 16px;
+            background: var(--black);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .type-btn.income {
+            color: var(--green);
+        }
+
+        .type-btn.expense {
+            color: var(--red);
+        }
+
+        .type-btn.active.income {
+            background: linear-gradient(135deg, var(--green), #059669);
+            color: white;
+            border-color: var(--green);
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+
+        .type-btn.active.expense {
+            background: linear-gradient(135deg, var(--red), #DC2626);
+            color: white;
+            border-color: var(--red);
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
+
         /* Password Toggle */
         .password-toggle {
             position: absolute;
@@ -341,11 +387,14 @@
             justify-content: space-between;
             align-items: center;
             margin-top: 15px;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .user-email {
             color: var(--off-white);
             opacity: 0.8;
+            word-break: break-all;
         }
 
         /* Navigation Tabs */
@@ -368,6 +417,9 @@
             cursor: pointer;
             transition: all 0.3s;
             font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .nav-tab.active {
@@ -496,6 +548,8 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
         }
 
         .transactions-header h3 {
@@ -506,6 +560,7 @@
         .filter-buttons {
             display: flex;
             gap: 10px;
+            flex-wrap: wrap;
         }
 
         .filter-btn {
@@ -538,6 +593,7 @@
             opacity: 0;
             animation: fadeInUp 0.5s ease forwards;
             transition: all 0.3s;
+            gap: 15px;
         }
 
         @keyframes fadeInUp {
@@ -562,11 +618,13 @@
             align-items: center;
             gap: 20px;
             flex: 1;
+            min-width: 0;
         }
 
         .transaction-icon {
             width: 50px;
             height: 50px;
+            min-width: 50px;
             border-radius: 15px;
             display: flex;
             align-items: center;
@@ -588,12 +646,16 @@
 
         .transaction-details {
             flex: 1;
+            min-width: 0;
         }
 
         .transaction-description {
             font-weight: 600;
             color: var(--off-white);
             margin-bottom: 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .transaction-meta {
@@ -602,12 +664,13 @@
             font-size: 12px;
             color: var(--gold);
             opacity: 0.7;
+            flex-wrap: wrap;
         }
 
         .transaction-amount {
             font-weight: 700;
             font-size: 20px;
-            margin-right: 15px;
+            white-space: nowrap;
         }
 
         .transaction-amount.income {
@@ -624,6 +687,7 @@
             padding: 10px;
             width: 40px;
             height: 40px;
+            min-width: 40px;
             border-radius: 10px;
             border: 1px solid rgba(239, 68, 68, 0.3);
             display: flex;
@@ -640,7 +704,7 @@
 
         /* Recurring Transactions Section */
         .recurring-section {
-            margin-top: 30px;
+            margin-bottom: 30px;
             padding: 25px;
             background: var(--dark-gray);
             border-radius: 20px;
@@ -652,6 +716,8 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
 
         .recurring-header h4 {
@@ -679,6 +745,7 @@
             margin-bottom: 10px;
             border: 1px solid var(--border);
             transition: all 0.3s;
+            gap: 10px;
         }
 
         .recurring-item:hover {
@@ -690,6 +757,25 @@
             display: flex;
             align-items: center;
             gap: 15px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .recurring-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .recurring-description {
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .recurring-amount {
+            font-size: 12px;
+            opacity: 0.7;
         }
 
         .recurring-frequency {
@@ -699,6 +785,32 @@
             border-radius: 15px;
             font-size: 11px;
             text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        /* Frequency Options */
+        .frequency-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .frequency-btn {
+            padding: 10px;
+            background: var(--black);
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            color: var(--off-white);
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 13px;
+        }
+
+        .frequency-btn.active {
+            background: var(--purple);
+            color: white;
+            border-color: var(--purple);
         }
 
         /* Charts Section */
@@ -726,6 +838,7 @@
             display: flex;
             gap: 10px;
             margin-bottom: 20px;
+            flex-wrap: wrap;
         }
 
         .chart-control-btn {
@@ -744,7 +857,7 @@
             color: var(--black);
         }
 
-        #financeChart {
+        #financeChart, #categoryChart {
             max-height: 400px;
         }
 
@@ -836,6 +949,7 @@
             z-index: 1000;
             align-items: center;
             justify-content: center;
+            padding: 20px;
         }
 
         .modal.active {
@@ -847,7 +961,9 @@
             border-radius: 20px;
             padding: 30px;
             max-width: 500px;
-            width: 90%;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
             border: 1px solid var(--border);
             animation: modalSlide 0.3s ease;
         }
@@ -887,8 +1003,58 @@
             color: var(--gold);
         }
 
-        /* Responsive */
+        /* Mobile Responsive Styles */
         @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .auth-container {
+                margin: 20px auto;
+                padding: 30px 20px;
+            }
+
+            .penguin-corner {
+                width: 50px;
+                height: 50px;
+            }
+
+            .penguin-corner.top-left {
+                top: 10px;
+                left: 10px;
+            }
+
+            .penguin-corner.bottom-right {
+                bottom: 10px;
+                right: 10px;
+            }
+
+            .header {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .user-info {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .nav-tabs {
+                margin: 10px;
+                flex-direction: row;
+                overflow-x: auto;
+                gap: 5px;
+            }
+
+            .nav-tab {
+                padding: 10px;
+                font-size: 12px;
+                min-width: 90px;
+            }
+
             .main-content {
                 grid-template-columns: 1fr;
             }
@@ -896,25 +1062,143 @@
             .sidebar {
                 border-right: none;
                 border-bottom: 1px solid var(--border);
+                padding: 20px;
             }
 
-            .penguin-corner {
-                width: 60px;
-                height: 60px;
-            }
-
-            .nav-tabs {
-                flex-direction: column;
+            .content {
+                padding: 20px;
             }
 
             .budget-summary {
                 grid-template-columns: 1fr;
+                gap: 15px;
+            }
+
+            .summary-card {
+                padding: 20px;
+            }
+
+            .summary-card .amount {
+                font-size: 28px;
+            }
+
+            .transactions {
+                padding: 20px;
+            }
+
+            .transactions-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .filter-buttons {
+                width: 100%;
+                justify-content: space-between;
             }
 
             .transaction-item {
-                flex-direction: column;
+                padding: 15px;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .transaction-info {
+                flex: 1 1 100%;
                 gap: 15px;
-                align-items: flex-start;
+            }
+
+            .transaction-icon {
+                width: 40px;
+                height: 40px;
+                min-width: 40px;
+                font-size: 20px;
+            }
+
+            .transaction-amount {
+                font-size: 18px;
+                flex: 1;
+                text-align: right;
+            }
+
+            .delete-btn {
+                width: 35px;
+                height: 35px;
+                min-width: 35px;
+                padding: 8px;
+            }
+
+            .recurring-section {
+                padding: 20px;
+            }
+
+            .recurring-item {
+                flex-wrap: wrap;
+            }
+
+            .recurring-info {
+                flex: 1 1 100%;
+            }
+
+            .charts-container {
+                padding: 20px;
+            }
+
+            .chart-card {
+                padding: 20px;
+            }
+
+            .frequency-options {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .type-toggle {
+                margin-bottom: 20px;
+            }
+
+            .type-btn {
+                padding: 14px;
+                font-size: 14px;
+            }
+
+            .modal-content {
+                padding: 20px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .auth-header h2 {
+                font-size: 26px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .nav-tab {
+                font-size: 11px;
+                padding: 8px;
+                min-width: 80px;
+            }
+
+            .summary-card .amount {
+                font-size: 24px;
+            }
+
+            .transaction-item {
+                padding: 12px;
+            }
+
+            .transaction-description {
+                font-size: 14px;
+            }
+
+            .transaction-amount {
+                font-size: 16px;
+            }
+
+            .btn-primary, .btn-secondary, .btn-purple {
+                padding: 12px 20px;
+                font-size: 14px;
             }
         }
 
@@ -1081,13 +1365,16 @@
                         <h3>Add Transaction</h3>
                         
                         <form onsubmit="handleAddTransaction(event)">
-                            <div class="form-group">
-                                <label for="transactionType">Type</label>
-                                <select id="transactionType" required>
-                                    <option value="income">💰 Income</option>
-                                    <option value="expense">💸 Expense</option>
-                                </select>
+                            <label>Type</label>
+                            <div class="type-toggle">
+                                <button type="button" class="type-btn income" id="incomeBtn" onclick="selectType('income')">
+                                    💰 Income
+                                </button>
+                                <button type="button" class="type-btn expense active" id="expenseBtn" onclick="selectType('expense')">
+                                    💸 Expense
+                                </button>
                             </div>
+                            <input type="hidden" id="transactionType" value="expense" required>
                             
                             <div class="form-group">
                                 <label for="transactionDescription">Description</label>
@@ -1172,24 +1459,12 @@
                 <div style="padding: 30px;">
                     <div class="recurring-section">
                         <div class="recurring-header">
-                            <h4>Monthly Subscriptions</h4>
-                            <button class="add-recurring-btn" onclick="openRecurringModal('monthly')">+ Add Monthly</button>
+                            <h4>Recurring Transactions</h4>
+                            <button class="add-recurring-btn" onclick="openRecurringModal()">+ Add Recurring</button>
                         </div>
-                        <div id="monthlyRecurringList">
+                        <div id="recurringList">
                             <div class="empty-state">
-                                <p>No monthly subscriptions yet</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="recurring-section">
-                        <div class="recurring-header">
-                            <h4>Weekly Income/Expenses</h4>
-                            <button class="add-recurring-btn" onclick="openRecurringModal('weekly')">+ Add Weekly</button>
-                        </div>
-                        <div id="weeklyRecurringList">
-                            <div class="empty-state">
-                                <p>No weekly items yet</p>
+                                <p>No recurring transactions yet</p>
                             </div>
                         </div>
                     </div>
@@ -1226,15 +1501,16 @@
                 <button class="modal-close" onclick="closeRecurringModal()">×</button>
             </div>
             <form onsubmit="handleAddRecurring(event)">
-                <input type="hidden" id="recurringFrequency">
-                
-                <div class="form-group">
-                    <label for="recurringType">Type</label>
-                    <select id="recurringType" required>
-                        <option value="income">💰 Income</option>
-                        <option value="expense">💸 Expense</option>
-                    </select>
+                <label>Type</label>
+                <div class="type-toggle">
+                    <button type="button" class="type-btn income" id="recurringIncomeBtn" onclick="selectRecurringType('income')">
+                        💰 Income
+                    </button>
+                    <button type="button" class="type-btn expense active" id="recurringExpenseBtn" onclick="selectRecurringType('expense')">
+                        💸 Expense
+                    </button>
                 </div>
+                <input type="hidden" id="recurringType" value="expense" required>
                 
                 <div class="form-group">
                     <label for="recurringDescription">Description</label>
@@ -1247,6 +1523,17 @@
                 </div>
                 
                 <div class="form-group">
+                    <label>Frequency</label>
+                    <div class="frequency-options">
+                        <button type="button" class="frequency-btn active" onclick="selectFrequency('weekly')">Weekly</button>
+                        <button type="button" class="frequency-btn" onclick="selectFrequency('biweekly')">Bi-weekly</button>
+                        <button type="button" class="frequency-btn" onclick="selectFrequency('monthly')">Monthly</button>
+                        <button type="button" class="frequency-btn" onclick="selectFrequency('yearly')">Yearly</button>
+                    </div>
+                    <input type="hidden" id="recurringFrequency" value="weekly" required>
+                </div>
+                
+                <div class="form-group">
                     <label for="recurringCategory">Category</label>
                     <select id="recurringCategory" required>
                         <option value="">Select category</option>
@@ -1255,6 +1542,7 @@
                         <option value="other-income">💰 Other Income</option>
                         <option value="bills">📄 Bills & Utilities</option>
                         <option value="entertainment">🎬 Entertainment</option>
+                        <option value="subscriptions">📱 Subscriptions</option>
                         <option value="other-expense">📦 Other</option>
                     </select>
                 </div>
@@ -1315,10 +1603,43 @@
         window.currentFilter = 'all';
         window.currentTab = 'dashboard';
         window.chartPeriod = 'week';
+        window.selectedType = 'expense';
+        window.selectedRecurringType = 'expense';
+        window.selectedFrequency = 'weekly';
         let unsubscribeTransactions = null;
         let unsubscribeRecurring = null;
         let financeChart = null;
         let categoryChart = null;
+
+        // Type Selection Functions
+        window.selectType = function(type) {
+            window.selectedType = type;
+            document.getElementById('transactionType').value = type;
+            
+            // Update button states
+            document.getElementById('incomeBtn').classList.toggle('active', type === 'income');
+            document.getElementById('expenseBtn').classList.toggle('active', type === 'expense');
+        }
+
+        window.selectRecurringType = function(type) {
+            window.selectedRecurringType = type;
+            document.getElementById('recurringType').value = type;
+            
+            // Update button states
+            document.getElementById('recurringIncomeBtn').classList.toggle('active', type === 'income');
+            document.getElementById('recurringExpenseBtn').classList.toggle('active', type === 'expense');
+        }
+
+        window.selectFrequency = function(frequency) {
+            window.selectedFrequency = frequency;
+            document.getElementById('recurringFrequency').value = frequency;
+            
+            // Update button states
+            document.querySelectorAll('.frequency-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        }
 
         // UI Helper Functions
         function showLoading(show = true) {
@@ -1521,8 +1842,7 @@
         }
 
         // Recurring Transactions
-        window.openRecurringModal = function(frequency) {
-            document.getElementById('recurringFrequency').value = frequency;
+        window.openRecurringModal = function() {
             document.getElementById('recurringModal').classList.add('active');
         }
 
@@ -1554,6 +1874,9 @@
                 
                 closeRecurringModal();
                 event.target.reset();
+                // Reset to defaults
+                window.selectRecurringType('expense');
+                window.selectFrequency('weekly');
             } catch (error) {
                 console.error('Error adding recurring:', error);
             } finally {
@@ -1630,7 +1953,7 @@
                             ...doc.data()
                         });
                     });
-                    updateRecurringLists();
+                    updateRecurringList();
                 });
             } catch (error) {
                 console.error('Error loading recurring:', error);
@@ -1729,38 +2052,40 @@
             }).join('');
         }
 
-        function updateRecurringLists() {
-            const monthlyList = document.getElementById('monthlyRecurringList');
-            const weeklyList = document.getElementById('weeklyRecurringList');
+        function updateRecurringList() {
+            const recurringList = document.getElementById('recurringList');
             
-            const monthly = window.recurringTransactions.filter(r => r.frequency === 'monthly');
-            const weekly = window.recurringTransactions.filter(r => r.frequency === 'weekly');
+            if (window.recurringTransactions.length === 0) {
+                recurringList.innerHTML = '<div class="empty-state"><p>No recurring transactions yet</p></div>';
+                return;
+            }
             
-            monthlyList.innerHTML = monthly.length ? monthly.map(r => `
+            // Group by frequency
+            const grouped = {
+                weekly: [],
+                biweekly: [],
+                monthly: [],
+                yearly: []
+            };
+            
+            window.recurringTransactions.forEach(r => {
+                if (grouped[r.frequency]) {
+                    grouped[r.frequency].push(r);
+                }
+            });
+            
+            recurringList.innerHTML = window.recurringTransactions.map(r => `
                 <div class="recurring-item">
                     <div class="recurring-info">
-                        <div>
-                            <div style="font-weight: 600;">${r.description}</div>
-                            <div style="font-size: 12px; opacity: 0.7;">${r.type === 'income' ? '+' : '-'}$${r.amount.toFixed(2)}</div>
+                        <div class="recurring-details">
+                            <div class="recurring-description">${r.description}</div>
+                            <div class="recurring-amount">${r.type === 'income' ? '+' : '-'}$${r.amount.toFixed(2)}</div>
                         </div>
-                        <span class="recurring-frequency">Monthly</span>
+                        <span class="recurring-frequency">${r.frequency}</span>
                     </div>
                     <button class="delete-btn" onclick="deleteRecurring('${r.id}')">×</button>
                 </div>
-            `).join('') : '<div class="empty-state"><p>No monthly subscriptions yet</p></div>';
-            
-            weeklyList.innerHTML = weekly.length ? weekly.map(r => `
-                <div class="recurring-item">
-                    <div class="recurring-info">
-                        <div>
-                            <div style="font-weight: 600;">${r.description}</div>
-                            <div style="font-size: 12px; opacity: 0.7;">${r.type === 'income' ? '+' : '-'}$${r.amount.toFixed(2)}</div>
-                        </div>
-                        <span class="recurring-frequency">Weekly</span>
-                    </div>
-                    <button class="delete-btn" onclick="deleteRecurring('${r.id}')">×</button>
-                </div>
-            `).join('') : '<div class="empty-state"><p>No weekly items yet</p></div>';
+            `).join('');
         }
 
         // Charts
