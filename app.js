@@ -391,6 +391,31 @@ function updateRecurringList() {
         </div>
     `).join("");
 }
+    // ==============================
+    // Filters (Dashboard)
+    // ==============================
+    window.filterTransactions = (filter, e) => {
+        window.currentFilter = filter;
+
+        // update active button UI
+        document.querySelectorAll(".filter-btn").forEach(btn => btn.classList.remove("active"));
+        if (e) e.target.classList.add("active");
+
+        updateTransactionsList();
+    };
+
+    // ==============================
+    // Chart Period Controls (Analytics)
+    // ==============================
+    window.updateChartPeriod = (period, e) => {
+        window.chartPeriod = period;
+
+        // update active button UI
+        document.querySelectorAll(".chart-control-btn").forEach(btn => btn.classList.remove("active"));
+        if (e) e.target.classList.add("active");
+
+        updateCharts();
+    };
 
 // ==============================
 // Charts
@@ -426,25 +451,68 @@ function initCharts() {
 }
 function updateCharts() {
     if (!financeChart || !categoryChart) return;
+
+    const now = new Date();
     const grouped = {};
+
     window.transactions.forEach(t => {
-        const d = new Date(t.timestamp.seconds * 1000).toLocaleDateString();
-        if (!grouped[d]) grouped[d] = { income:0, expenses:0 };
-        if (t.type === "income") grouped[d].income += t.amount;
-        else grouped[d].expenses += t.amount;
+        const date = new Date(t.timestamp.seconds * 1000);
+
+        // filter by selected period
+        if (window.chartPeriod === "week") {
+            const weekAgo = new Date();
+            weekAgo.setDate(now.getDate() - 7);
+            if (date < weekAgo) return;
+        } else if (window.chartPeriod === "month") {
+            const monthAgo = new Date();
+            monthAgo.setMonth(now.getMonth() - 1);
+            if (date < monthAgo) return;
+        } else if (window.chartPeriod === "year") {
+            const yearAgo = new Date();
+            yearAgo.setFullYear(now.getFullYear() - 1);
+            if (date < yearAgo) return;
+        }
+
+        const dStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        if (!grouped[dStr]) grouped[dStr] = { income: 0, expenses: 0 };
+
+        if (t.type === "income") grouped[dStr].income += t.amount;
+        else grouped[dStr].expenses += t.amount;
     });
 
-    const dates = Object.keys(grouped).sort().slice(-7);
+    // update line chart
+    const dates = Object.keys(grouped).sort();
     financeChart.data.labels = dates;
     financeChart.data.datasets[0].data = dates.map(d => grouped[d].income);
     financeChart.data.datasets[1].data = dates.map(d => grouped[d].expenses);
     financeChart.data.datasets[2].data = dates.map(d => grouped[d].income - grouped[d].expenses);
     financeChart.update();
 
+    // update category chart (only expenses)
     const catTotals = {};
-    window.transactions.filter(t => t.type === "expense").forEach(t => {
-        catTotals[t.category] = (catTotals[t.category] || 0) + t.amount;
+    window.transactions.forEach(t => {
+        const date = new Date(t.timestamp.seconds * 1000);
+
+        // apply same period filter
+        if (window.chartPeriod === "week") {
+            const weekAgo = new Date();
+            weekAgo.setDate(now.getDate() - 7);
+            if (date < weekAgo) return;
+        } else if (window.chartPeriod === "month") {
+            const monthAgo = new Date();
+            monthAgo.setMonth(now.getMonth() - 1);
+            if (date < monthAgo) return;
+        } else if (window.chartPeriod === "year") {
+            const yearAgo = new Date();
+            yearAgo.setFullYear(now.getFullYear() - 1);
+            if (date < yearAgo) return;
+        }
+
+        if (t.type === "expense") {
+            catTotals[t.category] = (catTotals[t.category] || 0) + t.amount;
+        }
     });
+
     categoryChart.data.labels = Object.keys(catTotals);
     categoryChart.data.datasets[0].data = Object.values(catTotals);
     categoryChart.update();
