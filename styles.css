@@ -767,8 +767,20 @@
         }
 
         .recurring-amount {
-            font-size: 12px;
-            opacity: 0.7;
+            font-size: 20px;
+            font-weight: 700;
+            opacity: 1;
+            white-space: nowrap;
+            color: var(--off-white); /* fallback color */
+        }
+
+        /* Auto-color based on transaction type */
+        .recurring-item.income .recurring-amount {
+            color: var(--green);
+        }
+
+        .recurring-item.expense .recurring-amount {
+            color: var(--red);
         }
 
         .recurring-frequency {
