@@ -1353,9 +1353,9 @@
             
             <!-- Navigation Tabs -->
             <div class="nav-tabs">
-                <button class="nav-tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
-                <button class="nav-tab" onclick="switchTab('recurring')">🔄 Recurring</button>
-                <button class="nav-tab" onclick="switchTab('analytics')">📈 Analytics</button>
+                <button class="nav-tab active" onclick="switchTab('dashboard', event)">📊 Dashboard</button>
+                <button class="nav-tab" onclick="switchTab('recurring', event)">🔄 Recurring</button>
+                <button class="nav-tab" onclick="switchTab('analytics', event)">📈 Analytics</button>
             </div>
 
             <!-- Dashboard Tab -->
@@ -1436,9 +1436,9 @@
                             <div class="transactions-header">
                                 <h3>Recent Transactions</h3>
                                 <div class="filter-buttons">
-                                    <button class="filter-btn active" onclick="filterTransactions('all')">All</button>
-                                    <button class="filter-btn" onclick="filterTransactions('income')">Income</button>
-                                    <button class="filter-btn" onclick="filterTransactions('expense')">Expenses</button>
+                                    <button class="filter-btn active" onclick="filterTransactions('all', event)">All</button>
+                                    <button class="filter-btn" onclick="filterTransactions('income', event)">Income</button>
+                                    <button class="filter-btn" onclick="filterTransactions('expense', event)">Expenses</button>
                                 </div>
                             </div>
                             
@@ -1477,9 +1477,9 @@
                     <div class="chart-card">
                         <h3>Financial Overview</h3>
                         <div class="chart-controls">
-                            <button class="chart-control-btn active" onclick="updateChartPeriod('week')">Week</button>
-                            <button class="chart-control-btn" onclick="updateChartPeriod('month')">Month</button>
-                            <button class="chart-control-btn" onclick="updateChartPeriod('year')">Year</button>
+                            <button class="chart-control-btn active" onclick="updateChartPeriod('week', event)">Week</button>
+                            <button class="chart-control-btn" onclick="updateChartPeriod('month', event)">Month</button>
+                            <button class="chart-control-btn" onclick="updateChartPeriod('year', event)">Year</button>
                         </div>
                         <canvas id="financeChart"></canvas>
                     </div>
@@ -1524,12 +1524,12 @@
                 
                 <div class="form-group">
                     <label>Frequency</label>
-                    <div class="frequency-options">
-                        <button type="button" class="frequency-btn active" onclick="selectFrequency('weekly')">Weekly</button>
-                        <button type="button" class="frequency-btn" onclick="selectFrequency('biweekly')">Bi-weekly</button>
-                        <button type="button" class="frequency-btn" onclick="selectFrequency('monthly')">Monthly</button>
-                        <button type="button" class="frequency-btn" onclick="selectFrequency('yearly')">Yearly</button>
-                    </div>
+                <div class="frequency-options">
+                    <button type="button" class="frequency-btn active" onclick="selectFrequency('weekly', event)">Weekly</button>
+                    <button type="button" class="frequency-btn" onclick="selectFrequency('biweekly', event)">Bi-weekly</button>
+                    <button type="button" class="frequency-btn" onclick="selectFrequency('monthly', event)">Monthly</button>
+                    <button type="button" class="frequency-btn" onclick="selectFrequency('yearly', event)">Yearly</button>
+                </div>
                     <input type="hidden" id="recurringFrequency" value="weekly" required>
                 </div>
                 
@@ -1630,15 +1630,15 @@
             document.getElementById('recurringExpenseBtn').classList.toggle('active', type === 'expense');
         }
 
-        window.selectFrequency = function(frequency) {
+        window.selectFrequency = function(frequency, event) {
             window.selectedFrequency = frequency;
             document.getElementById('recurringFrequency').value = frequency;
-            
-            // Update button states
-            document.querySelectorAll('.frequency-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
+
+            // Reset buttons
+            document.querySelectorAll('.frequency-btn').forEach(btn => btn.classList.remove('active'));
+
+            // Add active to the clicked one
+            if (event) event.target.classList.add('active');
         }
 
         // UI Helper Functions
@@ -1676,22 +1676,18 @@
         }
 
         // Tab Switching
-        window.switchTab = function(tab) {
+        window.switchTab = function(tab, event) {
             window.currentTab = tab;
-            
+
             // Update tab buttons
-            document.querySelectorAll('.nav-tab').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            
+            document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
+            if (event) event.target.classList.add('active');
+
             // Update tab content
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             document.getElementById(tab + 'Tab').classList.add('active');
-            
-            // Initialize charts if analytics tab
+
+            // Init charts if analytics tab
             if (tab === 'analytics') {
                 setTimeout(() => initCharts(), 100);
             }
@@ -1830,14 +1826,13 @@
         }
 
         // Filter Transactions
-        window.filterTransactions = function(filter) {
+        window.filterTransactions = function(filter, event) {
             window.currentFilter = filter;
-            
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            
+
+            // Update filter buttons
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            if (event) event.target.classList.add('active');
+
             updateTransactionsList();
         }
 
@@ -1852,37 +1847,39 @@
 
         window.handleAddRecurring = async function(event) {
             event.preventDefault();
-            
+
             const frequency = document.getElementById('recurringFrequency').value;
             const type = document.getElementById('recurringType').value;
             const description = document.getElementById('recurringDescription').value;
             const amount = parseFloat(document.getElementById('recurringAmount').value);
             const category = document.getElementById('recurringCategory').value;
-            
+
+            console.log("Adding recurring:", { 
+                user: window.currentUser, frequency, type, description, amount, category 
+            });
+
             try {
                 showLoading(true);
                 await addDoc(collection(db, 'recurring'), {
-                    userId: window.currentUser.uid,
-                    frequency: frequency,
-                    type: type,
-                    description: description,
-                    amount: amount,
-                    category: category,
+                    userId: window.currentUser?.uid,
+                    frequency, type, description, amount, category,
                     active: true,
                     createdAt: new Date().toISOString()
                 });
-                
+
+                console.log("✅ Recurring transaction saved");
                 closeRecurringModal();
                 event.target.reset();
-                // Reset to defaults
                 window.selectRecurringType('expense');
-                window.selectFrequency('weekly');
+                window.selectFrequency('weekly', event);
             } catch (error) {
-                console.error('Error adding recurring:', error);
+                console.error("❌ Error adding recurring:", error);
+                alert("Error adding recurring: " + error.message);
             } finally {
                 showLoading(false);
             }
         }
+
 
         window.deleteRecurring = async function(recurringId) {
             if (confirm('Delete this recurring transaction?')) {
@@ -2231,12 +2228,13 @@
             categoryChart.update();
         }
 
-        window.updateChartPeriod = function(period) {
+        window.updateChartPeriod = function(period, event) {
             window.chartPeriod = period;
-            document.querySelectorAll('.chart-control-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
+
+            // Update chart control buttons
+            document.querySelectorAll('.chart-control-btn').forEach(btn => btn.classList.remove('active'));
+            if (event) event.target.classList.add('active');
+
             updateCharts();
         }
 
