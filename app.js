@@ -826,7 +826,9 @@ function updateCharts() {
     const grouped = {};
 
     window.transactions.forEach(t => {
-        const date = new Date(t.timestamp.seconds * 1000);
+        const ms = tsToMs(t.timestamp) ?? tsToMs(t.createdAt);
+        if (ms == null) return;  // skip if we can’t parse
+        const date = new Date(ms);
 
         // filter by selected period
         if (window.chartPeriod === "week") {
@@ -861,7 +863,9 @@ function updateCharts() {
     // update category chart (only expenses)
     const catTotals = {};
     window.transactions.forEach(t => {
-        const date = new Date(t.timestamp.seconds * 1000);
+        const ms = tsToMs(t.timestamp) ?? tsToMs(t.createdAt);
+        if (ms == null) return;  // skip if we can’t parse
+        const date = new Date(ms);
 
         // apply same period filter
         if (window.chartPeriod === "week") {
