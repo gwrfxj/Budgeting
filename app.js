@@ -622,7 +622,8 @@ function renderTxnRow(t, i) {
         entertainment: "🎬", bills: "📄", healthcare: "🏥",
         education: "📚", "other-expense": "📦"
     };
-    const date = t.timestamp ? new Date(t.timestamp.seconds * 1000) : new Date();
+    const ms = tsToMs(t.timestamp) ?? tsToMs(t.createdAt) ?? Date.now();
+    const date = new Date(ms);
     const dStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     const icon = categoryIcons[t.category] || "💰";
     return `
@@ -646,7 +647,8 @@ function updateBudgetTransactionsList() {
     // ★ CHANGE: expenses only, already sorted desc by Firestore, then cap to 10
     const recentExpenses = window.transactions
     .filter(t => t.type === "expense" && !t.isSystem && t.category !== "__rollover__")
-    .slice(0, 10);
+    .slice(0, BUDGET_RECENT_LIMIT);
+
 
     
     if (recentExpenses.length === 0) {
