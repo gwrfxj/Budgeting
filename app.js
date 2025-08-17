@@ -8,10 +8,10 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { 
     getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, 
-    deleteDoc, doc, getDocs, updateDoc, Timestamp 
+    deleteDoc, doc, getDocs, updateDoc, Timestamp, setDoc, getDoc 
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// Firebase config
+// Firebase config (kept exactly as you had it)
 const firebaseConfig = {
     apiKey: "AIzaSyBnvV981H5MwU25XPNNS1K1MKTGsY_1D7k",
     authDomain: "budgeting-app-58c5a.firebaseapp.com",
@@ -22,7 +22,7 @@ const firebaseConfig = {
     measurementId: "G-2NN9B226DZ"
 };
 
-// Initialize Firebase
+// Initialize Firebase (kept)
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -42,7 +42,62 @@ window.selectedFrequency = "weekly";
 let unsubscribeTransactions = null;
 let unsubscribeRecurring = null;
 let financeChart = null;
+window.currentBudget = null;
+window.currentSavings = null;
+let unsubscribeBudget = null;
+let unsubscribeSavings = null;
 let categoryChart = null;
+
+// ★ CHANGE: constants for list caps
+const DASHBOARD_RECENT_LIMIT = 10;
+const BUDGET_RECENT_LIMIT = 10;
+
+// Rollover message (transient UI hint on Dashboard)
+window.__rolloverAmount = 0;        // how much we moved to savings
+window.__rolloverNoteUntil = 0;     // unix ms until when we show the note
+
+
+// ---- Helpers (added) ----
+function tsToMs(ts) {
+  // Accept Firestore Timestamp, {seconds:n}, millis number, ISO string, Date
+  if (!ts) return null;
+  if (typeof ts.toMillis === "function") return ts.toMillis();
+  if (typeof ts.seconds === "number") return ts.seconds * 1000;
+  if (typeof ts === "number") return ts;
+  if (ts instanceof Date) return ts.getTime();
+  if (typeof ts === "string") {
+    const d = new Date(ts);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+  return null;
+}
+
+function startOfMonthMs(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+}
+
+async function ensureDoc(pathSegments, initData) {
+  // Example: ensureDoc(["savings", uid], { userId: uid, totalSavings: 0 })
+  const ref = doc(db, ...pathSegments);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    await setDoc(ref, initData, { merge: true });
+  }
+  return ref;
+}
+
+function showFriendlyError(id, err, fallbackMsg) {
+  console.error(fallbackMsg, err);
+  showError(id, `${fallbackMsg}${err?.code ? ` (${err.code})` : ""}`);
+}
+
+function announceRollover(amount) {
+  window.__rolloverAmount = Number(amount) || 0;
+  // show the note for 15 seconds
+  window.__rolloverNoteUntil = Date.now() + 15000;
+}
+
+
 
 // ==============================
 // UI Helpers
@@ -68,6 +123,14 @@ function showSuccess(id, msg) {
 window.togglePassword = (id) => {
     const input = document.getElementById(id);
     if (input) input.type = input.type === "password" ? "text" : "password";
+};
+window.showLogin = () => {
+    document.getElementById("loginForm").classList.remove("hidden");
+    document.getElementById("signupForm").classList.add("hidden");
+};
+window.showSignup = () => {
+    document.getElementById("signupForm").classList.remove("hidden");
+    document.getElementById("loginForm").classList.add("hidden");
 };
 
 // ==============================
@@ -148,14 +211,20 @@ onAuthStateChanged(auth, (user) => {
         showApp();
         loadTransactions();
         loadRecurring();
-        processRecurringTransactions(); // 👈 auto-run recurring at login
+        loadBudget();  // Add this
+        loadSavings(); // Add this
+        processRecurringTransactions();
+        processMonthlyReset(); // Add this
     } else {
         window.currentUser = null;
         if (unsubscribeTransactions) unsubscribeTransactions();
         if (unsubscribeRecurring) unsubscribeRecurring();
+        if (unsubscribeBudget) unsubscribeBudget();  // Add this
+        if (unsubscribeSavings) unsubscribeSavings(); // Add this
         showAuth();
     }
 });
+
 function showAuth() {
     document.getElementById("authContainer").style.display = "block";
     document.getElementById("appContainer").style.display = "none";
@@ -296,6 +365,305 @@ async function processRecurringTransactions() {
 }
 
 // ==============================
+// Budget & Savings Management
+// ==============================
+window.openBudgetModal = () => document.getElementById("budgetModal").classList.add("active");
+window.closeBudgetModal = () => document.getElementById("budgetModal").classList.remove("active");
+
+window.handleSetBudget = async (e) => {
+  e.preventDefault();
+  const monthlyLimit = parseFloat(document.getElementById("monthlyBudgetLimit").value);
+  if (isNaN(monthlyLimit)) return alert("Enter a valid amount.");
+
+  try {
+    showLoading(true);
+    const uid = window.currentUser?.uid;
+    if (!uid) throw new Error("not-signed-in");
+
+    // make sure the doc exists first, then merge
+    const budgetRef = await ensureDoc(["budgets", uid], {
+      userId: uid,
+      monthlyLimit: 0,
+      lastResetDate: new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    });
+
+    await setDoc(budgetRef, {
+      userId: uid,
+      monthlyLimit,
+      lastResetDate: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+
+    closeBudgetModal();
+    e.target.reset();
+    loadBudget();
+  } catch (err) {
+    showFriendlyError("signupError", err, "Failed to set budget.");
+    alert("Failed to set budget. Please try again.");
+  } finally {
+    showLoading(false);
+  }
+};
+
+window.handleUpdateSavings = async (e) => {
+  e.preventDefault();
+  const newSavings = parseFloat(document.getElementById("savingsAmount").value);
+  if (isNaN(newSavings)) return alert("Enter a valid amount.");
+
+  try {
+    showLoading(true);
+    const uid = window.currentUser?.uid;
+    if (!uid) throw new Error("not-signed-in");
+
+    const savingsRef = await ensureDoc(["savings", uid], {
+      userId: uid,
+      totalSavings: 0,
+      autoAddBalance: false,
+      createdAt: new Date().toISOString()
+    });
+
+    await setDoc(savingsRef, {
+      userId: uid,
+      totalSavings: newSavings,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+
+    closeSavingsModal();
+    e.target.reset();
+    loadSavings();
+  } catch (err) {
+    showFriendlyError("signupError", err, "Failed to update savings.");
+    alert("Failed to update savings. Please try again.");
+  } finally {
+    showLoading(false);
+  }
+};
+window.toggleAutoSavings = async (checkbox) => {
+  try {
+    showLoading(true);
+    const uid = window.currentUser?.uid;
+    if (!uid) throw new Error("not-signed-in");
+
+    const savingsRef = await ensureDoc(["savings", uid], {
+      userId: uid,
+      totalSavings: 0,
+      autoAddBalance: false,
+      createdAt: new Date().toISOString()
+    });
+
+    await setDoc(savingsRef, {
+      autoAddBalance: !!checkbox.checked,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  } catch (err) {
+    checkbox.checked = !checkbox.checked; // revert UI on failure
+    showFriendlyError("signupError", err, "Failed to update auto-save setting.");
+    alert("Failed to update auto-save setting.");
+  } finally {
+    showLoading(false);
+  }
+};
+
+async function processMonthlyReset() {
+  if (!window.currentUser || !window.currentBudget) return;
+
+  const today = new Date();
+  const lastReset = new Date(window.currentBudget.lastResetDate || 0);
+
+  // If we’re in a new month, handle rollover
+  const isNewMonth =
+    today.getMonth() !== lastReset.getMonth() ||
+    today.getFullYear() !== lastReset.getFullYear();
+
+  if (!isNewMonth) return;
+
+  try {
+    // Only move leftover if auto-add is enabled
+    const autoAdd = !!window.currentSavings?.autoAddBalance;
+
+    if (autoAdd) {
+      // Compute LAST MONTH net balance
+      let income = 0, expenses = 0;
+      const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+      window.transactions.forEach(t => {
+        // support Firestore Timestamp or createdAt ISO
+        const tsMs =
+          (t.timestamp?.seconds ? t.timestamp.seconds * 1000 : null) ??
+          (typeof t.createdAt === "string" ? new Date(t.createdAt).getTime() : null);
+        if (!tsMs) return;
+        const td = new Date(tsMs);
+        if (td >= lastMonthStart && td < thisMonthStart) {
+          if (t.type === "income") income += Number(t.amount) || 0;
+          else if (t.type === "expense") expenses += Number(t.amount) || 0;
+        }
+      });
+
+      const netBalance = income - expenses;
+
+      // Only add positive leftover to savings
+      if (netBalance > 0) {
+        const savingsRef = doc(db, "savings", window.currentUser.uid);
+        // Read current to get the latest total, then add
+        const snap = await getDoc(savingsRef);
+        const currentTotal = snap.exists() ? (Number(snap.data().totalSavings) || 0) : 0;
+
+        await setDoc(
+          savingsRef,
+          {
+            totalSavings: currentTotal + netBalance,
+            lastUpdated: new Date().toISOString()
+          },
+          { merge: true }
+        );
+
+        // 🔔 show the dashboard hint: "-$322.00 (Added to Savings)"
+        announceRollover(netBalance);
+      }
+    }
+
+    // Update budget reset marker so we don’t re-run this again this month
+    const budgetRef = doc(db, "budgets", window.currentUser.uid);
+    await setDoc(budgetRef, { lastResetDate: new Date().toISOString() }, { merge: true });
+  } catch (err) {
+    console.error("Monthly rollover failed:", err);
+    // Silent fail; app keeps working
+  }
+}
+
+function loadBudget() {
+    if (!window.currentUser) return;
+    const budgetRef = doc(db, "budgets", window.currentUser.uid);
+    if (unsubscribeBudget) unsubscribeBudget();
+    unsubscribeBudget = onSnapshot(budgetRef, (snap) => {
+        if (snap.exists()) {
+            window.currentBudget = snap.data();
+            updateBudgetDisplay();
+        } else {
+            window.currentBudget = null;
+            updateBudgetDisplay();
+        }
+    }, (error) => {
+        console.error("Error loading budget:", error);
+    });
+}
+
+function loadSavings() {
+    if (!window.currentUser) return;
+    const savingsRef = doc(db, "savings", window.currentUser.uid);
+    if (unsubscribeSavings) unsubscribeSavings();
+    unsubscribeSavings = onSnapshot(savingsRef, (snap) => {
+        if (snap.exists()) {
+            window.currentSavings = snap.data();
+            updateSavingsDisplay();
+            // Update toggle state
+            const toggle = document.getElementById("autoSavingsToggle");
+            if (toggle) toggle.checked = window.currentSavings.autoAddBalance || false;
+        } else {
+            window.currentSavings = { totalSavings: 0, autoAddBalance: false };
+            updateSavingsDisplay();
+        }
+    }, (error) => {
+        console.error("Error loading savings:", error);
+    });
+}
+
+function updateBudgetDisplay() {
+  // Compute this month's expenses robustly (supports Timestamp OR createdAt)
+  const nowMs = Date.now();
+  const monthStart = startOfMonthMs(new Date(nowMs));
+
+  let monthlyExpenses = 0;
+  for (const t of window.transactions) {
+    if (t.type !== "expense") continue;
+    const tMs = tsToMs(t.timestamp) ?? tsToMs(t.createdAt);
+    if (tMs != null && tMs >= monthStart) {
+      monthlyExpenses += Number(t.amount) || 0;
+    }
+  }
+
+  document.getElementById("monthlyExpenses").textContent = `$${monthlyExpenses.toFixed(2)}`;
+
+  // If no budget set, keep your “Not Set” UI
+  if (!window.currentBudget || isNaN(Number(window.currentBudget.monthlyLimit))) {
+    document.getElementById("budgetRemaining").textContent = "Not Set";
+    const bar = document.getElementById("budgetBar");
+    if (bar) bar.style.width = "0%";
+    updateBudgetTransactionsList(); // still update the list
+    return;
+  }
+
+  // Remaining + progress
+  const limit = Number(window.currentBudget.monthlyLimit) || 0;
+  const remaining = limit - monthlyExpenses;
+  document.getElementById("budgetRemaining").textContent =
+    remaining >= 0 ? `$${remaining.toFixed(2)}` : `-$${Math.abs(remaining).toFixed(2)}`;
+
+  const pct = limit > 0 ? Math.min(100, (monthlyExpenses / limit) * 100) : 0;
+  const bar = document.getElementById("budgetBar");
+  if (bar) {
+    bar.style.width = `${pct}%`;
+    if (pct > 90) bar.style.background = "var(--red)";
+    else if (pct > 70) bar.style.background = "var(--gold)";
+    else bar.style.background = "var(--green)";
+  }
+
+  updateBudgetTransactionsList(); // you already merged “expenses only, max 10”
+}
+
+
+// ★ CHANGE: helper to format a txn row with your exact styles/classes
+function renderTxnRow(t, i) {
+    const categoryIcons = {
+        salary: "💼", investment: "📈", "other-income": "💰",
+        food: "🍔", transportation: "🚗", shopping: "🛍️",
+        entertainment: "🎬", bills: "📄", healthcare: "🏥",
+        education: "📚", "other-expense": "📦"
+    };
+    const date = t.timestamp ? new Date(t.timestamp.seconds * 1000) : new Date();
+    const dStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const icon = categoryIcons[t.category] || "💰";
+    return `
+    <div class="transaction-item" style="animation-delay:${i * 0.05}s">
+        <div class="transaction-info">
+            <div class="transaction-icon ${t.type}">${icon}</div>
+            <div class="transaction-details">
+                <div class="transaction-description">${t.description}</div>
+                <div class="transaction-meta"><span>${t.category.replace("-", " ")}</span><span>•</span><span>${dStr}</span></div>
+            </div>
+        </div>
+        <div class="transaction-amount ${t.type}">${t.type === "income" ? "+" : "-"}$${t.amount.toFixed(2)}</div>
+        <button class="delete-btn" onclick="deleteTransaction('${t.id}')">×</button>
+    </div>`;
+}
+
+function updateBudgetTransactionsList() {
+    const list = document.getElementById("budgetTransactionsList");
+    if (!list) return;
+
+    // ★ CHANGE: expenses only, already sorted desc by Firestore, then cap to 10
+    const recentExpenses = window.transactions
+        .filter(t => t.type === "expense")
+        .slice(0, BUDGET_RECENT_LIMIT); // 10 max
+    
+    if (recentExpenses.length === 0) {
+        list.innerHTML = `<div class="empty-state"><p>No transactions yet</p></div>`;
+        return;
+    }
+    list.innerHTML = recentExpenses.map(renderTxnRow).join("");
+}
+
+function updateSavingsDisplay() {
+    const savings = window.currentSavings?.totalSavings || 0;
+    document.getElementById("totalSavings").textContent = `$${savings.toFixed(2)}`;
+}
+
+window.openSavingsModal = () => document.getElementById("savingsModal").classList.add("active");
+window.closeSavingsModal = () => document.getElementById("savingsModal").classList.remove("active");
+
+// ==============================
 // Firestore Listeners
 // ==============================
 function loadTransactions() {
@@ -327,51 +695,51 @@ function loadRecurring() {
 function updateUI() {
     updateSummary();
     updateTransactionsList();
+    updateBudgetDisplay(); // keeps budget in sync
     if (window.currentTab === "analytics") updateCharts();
 }
+
 function updateSummary() {
-    let income = 0, expenses = 0;
-    window.transactions.forEach(t => { if (t.type === "income") income += t.amount; else expenses += t.amount; });
-    const balance = income - expenses;
-    document.getElementById("totalIncome").textContent = `$${income.toFixed(2)}`;
-    document.getElementById("totalExpenses").textContent = `$${expenses.toFixed(2)}`;
-    document.getElementById("balance").textContent = `${balance >= 0 ? "$" : "-$"}${Math.abs(balance).toFixed(2)}`;
+  let income = 0, expenses = 0;
+  window.transactions.forEach(t => {
+    if (t.type === "income") income += Number(t.amount) || 0;
+    else expenses += Number(t.amount) || 0;
+  });
+  const balance = income - expenses;
+
+  // Normal totals
+  document.getElementById("totalIncome").textContent = `$${income.toFixed(2)}`;
+  document.getElementById("totalExpenses").textContent = `$${expenses.toFixed(2)}`;
+
+  const balanceEl = document.getElementById("balance");
+
+  // If we just rolled over, show the explicit message for ~15s
+  if (Date.now() < window.__rolloverNoteUntil && window.__rolloverAmount > 0) {
+    const amt = window.__rolloverAmount.toFixed(2);
+    // Text only; no class/style changes so visuals remain identical
+    balanceEl.textContent = `-$${amt} (Added to Savings)`;
+  } else {
+    balanceEl.textContent = `${balance >= 0 ? "$" : "-$"}${Math.abs(balance).toFixed(2)}`;
+  }
 }
+
+
 function updateTransactionsList() {
     const list = document.getElementById("transactionsList");
     let txns = window.transactions;
     if (window.currentFilter !== "all") txns = txns.filter(t => t.type === window.currentFilter);
+
+    // ★ CHANGE: cap to latest 10 for dashboard list
+    txns = txns.slice(0, DASHBOARD_RECENT_LIMIT);
 
     if (txns.length === 0) {
         list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📝</div><h4>No transactions yet</h4><p>Add your first transaction</p></div>`;
         return;
     }
 
-    const categoryIcons = {
-        salary: "💼", investment: "📈", "other-income": "💰",
-        food: "🍔", transportation: "🚗", shopping: "🛍️",
-        entertainment: "🎬", bills: "📄", healthcare: "🏥",
-        education: "📚", "other-expense": "📦"
-    };
-
-    list.innerHTML = txns.map((t, i) => {
-        const date = t.timestamp ? new Date(t.timestamp.seconds * 1000) : new Date();
-        const dStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        const icon = categoryIcons[t.category] || "💰";
-        return `
-        <div class="transaction-item" style="animation-delay:${i * 0.05}s">
-            <div class="transaction-info">
-                <div class="transaction-icon ${t.type}">${icon}</div>
-                <div class="transaction-details">
-                    <div class="transaction-description">${t.description}</div>
-                    <div class="transaction-meta"><span>${t.category.replace("-", " ")}</span><span>•</span><span>${dStr}</span></div>
-                </div>
-            </div>
-            <div class="transaction-amount ${t.type}">${t.type === "income" ? "+" : "-"}$${t.amount.toFixed(2)}</div>
-            <button class="delete-btn" onclick="deleteTransaction('${t.id}')">×</button>
-        </div>`;
-    }).join("");
+    list.innerHTML = txns.map(renderTxnRow).join("");
 }
+
 function updateRecurringList() {
     const list = document.getElementById("recurringList");
     if (window.recurringTransactions.length === 0) {
@@ -391,34 +759,35 @@ function updateRecurringList() {
         </div>
     `).join("");
 }
-    // ==============================
-    // Filters (Dashboard)
-    // ==============================
-    window.filterTransactions = (filter, e) => {
-        window.currentFilter = filter;
-
-        // update active button UI
-        document.querySelectorAll(".filter-btn").forEach(btn => btn.classList.remove("active"));
-        if (e) e.target.classList.add("active");
-
-        updateTransactionsList();
-    };
-
-    // ==============================
-    // Chart Period Controls (Analytics)
-    // ==============================
-    window.updateChartPeriod = (period, e) => {
-        window.chartPeriod = period;
-
-        // update active button UI
-        document.querySelectorAll(".chart-control-btn").forEach(btn => btn.classList.remove("active"));
-        if (e) e.target.classList.add("active");
-
-        updateCharts();
-    };
 
 // ==============================
-// Charts
+// Filters (Dashboard)
+// ==============================
+window.filterTransactions = (filter, e) => {
+    window.currentFilter = filter;
+
+    // update active button UI
+    document.querySelectorAll(".filter-btn").forEach(btn => btn.classList.remove("active"));
+    if (e) e.target.classList.add("active");
+
+    updateTransactionsList();
+};
+
+// ==============================
+// Chart Period Controls (Analytics)
+// ==============================
+window.updateChartPeriod = (period, e) => {
+    window.chartPeriod = period;
+
+    // update active button UI
+    document.querySelectorAll(".chart-control-btn").forEach(btn => btn.classList.remove("active"));
+    if (e) e.target.classList.add("active");
+
+    updateCharts();
+};
+
+// ==============================
+// Charts (kept as-is)
 // ==============================
 function initCharts() {
     const ctx1 = document.getElementById("financeChart");
