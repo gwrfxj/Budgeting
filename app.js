@@ -920,75 +920,90 @@ function initCharts() {
 
     updateCharts();
 }
+
+// Put this small helper near your other helpers:
+function startOfPeriod(period, now = new Date()) {
+  if (period === "week") {
+    const s = new Date(now); s.setDate(now.getDate() - 6); s.setHours(0,0,0,0); return s;
+  } else if (period === "month") {
+    const s = new Date(now.getFullYear(), now.getMonth(), 1); s.setHours(0,0,0,0); return s;
+  } else { // "year"
+    const s = new Date(now.getFullYear(), 0, 1); s.setHours(0,0,0,0); return s;
+  }
+}
+
 function updateCharts() {
-    if (!financeChart || !categoryChart) return;
+  if (!financeChart || !categoryChart) return;
 
-    const now = new Date();
-    const grouped = {};
+  const now = new Date(); now.setHours(0,0,0,0);
+  const start = startOfPeriod(window.chartPeriod, now);
 
-    window.transactions.forEach(t => {
-        const ms = tsToMs(t.timestamp) ?? tsToMs(t.createdAt);
-        if (ms == null) return;  // skip if we can’t parse
-        const date = new Date(ms);
+  // 1) Aggregate daily income/expense for the selected period
+  const daily = new Map(); // key: 'YYYY-MM-DD' -> {income, expenses}
+  for (const t of window.transactions) {
+    const ms = (t.timestamp?.toMillis?.() ?? (t.timestamp?.seconds ? t.timestamp.seconds * 1000 : null))
+              ?? (typeof t.createdAt === "string" ? new Date(t.createdAt).getTime() : null);
+    if (ms == null) continue;
+    const d = new Date(ms); d.setHours(0,0,0,0);
+    if (d < start || d > now) continue;
 
-        // filter by selected period
-        if (window.chartPeriod === "week") {
-            const weekAgo = new Date();
-            weekAgo.setDate(now.getDate() - 7);
-            if (date < weekAgo) return;
-        } else if (window.chartPeriod === "month") {
-            const monthAgo = new Date();
-            monthAgo.setMonth(now.getMonth() - 1);
-            if (date < monthAgo) return;
-        } else if (window.chartPeriod === "year") {
-            const yearAgo = new Date();
-            yearAgo.setFullYear(now.getFullYear() - 1);
-            if (date < yearAgo) return;
-        }
+    const key = d.toISOString().slice(0,10);
+    if (!daily.has(key)) daily.set(key, { income: 0, expenses: 0 });
+    if (t.type === "income") daily.get(key).income += Number(t.amount) || 0;
+    else if (t.type === "expense") daily.get(key).expenses += Number(t.amount) || 0;
+  }
 
-        const dStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        if (!grouped[dStr]) grouped[dStr] = { income: 0, expenses: 0 };
+  // 2) Build a continuous date range from start..now
+  const labels = [];
+  const perDayIncome = [];
+  const perDayExpenses = [];
+  const cursor = new Date(start);
+  while (cursor <= now) {
+    const key = cursor.toISOString().slice(0,10);
+    const row = daily.get(key) || { income: 0, expenses: 0 };
+    labels.push(cursor.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+    perDayIncome.push(row.income);
+    perDayExpenses.push(row.expenses);
+    cursor.setDate(cursor.getDate() + 1);
+  }
 
-        if (t.type === "income") grouped[dStr].income += t.amount;
-        else grouped[dStr].expenses += t.amount;
-    });
+  // 3) Convert to running (cumulative) totals for smoother, intuitive lines
+  const cumIncome = [];
+  const cumExpenses = [];
+  const cumNet = [];
+  let accI = 0, accE = 0;
+  for (let i = 0; i < labels.length; i++) {
+    accI += perDayIncome[i];
+    accE += perDayExpenses[i];
+    cumIncome.push(accI);
+    cumExpenses.push(accE);
+    cumNet.push(accI - accE);
+  }
 
-    // update line chart
-    const dates = Object.keys(grouped).sort();
-    financeChart.data.labels = dates;
-    financeChart.data.datasets[0].data = dates.map(d => grouped[d].income);
-    financeChart.data.datasets[1].data = dates.map(d => grouped[d].expenses);
-    financeChart.data.datasets[2].data = dates.map(d => grouped[d].income - grouped[d].expenses);
-    financeChart.update();
+  // Update line chart
+  financeChart.data.labels = labels;
+  financeChart.data.datasets[0].label = "Income";
+  financeChart.data.datasets[1].label = "Expenses";
+  financeChart.data.datasets[2].label = "Net Balance";
+  financeChart.data.datasets[0].data = cumIncome;
+  financeChart.data.datasets[1].data = cumExpenses;
+  financeChart.data.datasets[2].data = cumNet;
+  financeChart.update();
 
-    // update category chart (only expenses)
-    const catTotals = {};
-    window.transactions.forEach(t => {
-        const ms = tsToMs(t.timestamp) ?? tsToMs(t.createdAt);
-        if (ms == null) return;  // skip if we can’t parse
-        const date = new Date(ms);
+  // 4) Category donut: totals within the period (expenses only)
+  const catTotals = {};
+  for (const t of window.transactions) {
+    const ms = (t.timestamp?.toMillis?.() ?? (t.timestamp?.seconds ? t.timestamp.seconds * 1000 : null))
+              ?? (typeof t.createdAt === "string" ? new Date(t.createdAt).getTime() : null);
+    if (ms == null) continue;
+    const d = new Date(ms); d.setHours(0,0,0,0);
+    if (d < start || d > now) continue;
+    if (t.type === "expense") {
+      catTotals[t.category] = (catTotals[t.category] || 0) + (Number(t.amount) || 0);
+    }
+  }
 
-        // apply same period filter
-        if (window.chartPeriod === "week") {
-            const weekAgo = new Date();
-            weekAgo.setDate(now.getDate() - 7);
-            if (date < weekAgo) return;
-        } else if (window.chartPeriod === "month") {
-            const monthAgo = new Date();
-            monthAgo.setMonth(now.getMonth() - 1);
-            if (date < monthAgo) return;
-        } else if (window.chartPeriod === "year") {
-            const yearAgo = new Date();
-            yearAgo.setFullYear(now.getFullYear() - 1);
-            if (date < yearAgo) return;
-        }
-
-        if (t.type === "expense") {
-            catTotals[t.category] = (catTotals[t.category] || 0) + t.amount;
-        }
-    });
-
-    categoryChart.data.labels = Object.keys(catTotals);
-    categoryChart.data.datasets[0].data = Object.values(catTotals);
-    categoryChart.update();
+  categoryChart.data.labels = Object.keys(catTotals).map(k => k.replace(/-/g, " "));
+  categoryChart.data.datasets[0].data = Object.values(catTotals);
+  categoryChart.update();
 }
