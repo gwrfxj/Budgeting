@@ -48,18 +48,19 @@ let unsubscribeBudget = null;
 let unsubscribeSavings = null;
 let categoryChart = null;
 
-// ★ CHANGE: constants for list caps
+// ★ constants for list caps
 const DASHBOARD_RECENT_LIMIT = 10;
 const BUDGET_RECENT_LIMIT = 10;
 
+// Yearly reset guard (run once after both budget & savings are loaded)
+let __yearResetRan = false;
+
 // Rollover message (transient UI hint on Dashboard)
-window.__rolloverAmount = 0;        // how much we moved to savings
-window.__rolloverNoteUntil = 0;     // unix ms until when we show the note
+window.__rolloverAmount = 0;
+window.__rolloverNoteUntil = 0;
 
-
-// ---- Helpers (added) ----
+// ---- Helpers ----
 function tsToMs(ts) {
-  // Accept Firestore Timestamp, {seconds:n}, millis number, ISO string, Date
   if (!ts) return null;
   if (typeof ts.toMillis === "function") return ts.toMillis();
   if (typeof ts.seconds === "number") return ts.seconds * 1000;
@@ -77,7 +78,6 @@ function startOfMonthMs(d = new Date()) {
 }
 
 async function ensureDoc(pathSegments, initData) {
-  // Example: ensureDoc(["savings", uid], { userId: uid, totalSavings: 0 })
   const ref = doc(db, ...pathSegments);
   const snap = await getDoc(ref);
   if (!snap.exists()) {
@@ -94,14 +94,8 @@ function showFriendlyError(id, err, fallbackMsg) {
 function announceRollover(amount) {
   const amt = Number(amount) || 0;
   window.__rolloverAmount = amt;
-
-  // 💬 NEW: friendly message
   window.__rolloverMessage =
-    amt > 0
-      ? `+$${amt.toFixed(2)} (Added to Savings)`
-      : `No leftover to add to Savings`;
-
-  // show the note for 15 seconds
+    amt > 0 ? `+$${amt.toFixed(2)} (Added to Savings)` : `No leftover to add to Savings`;
   window.__rolloverNoteUntil = Date.now() + 15000;
 }
 
@@ -142,7 +136,6 @@ window.showSignup = () => {
 function updateRolloverNote() {
   const el = document.getElementById("rolloverNote");
   if (!el) return;
-
   if (Date.now() < (window.__rolloverNoteUntil || 0) && window.__rolloverMessage) {
     el.textContent = window.__rolloverMessage;
   } else {
@@ -175,14 +168,51 @@ window.selectFrequency = (freq, e) => {
 // ==============================
 // Tabs
 // ==============================
+
+/* Why: keeps desktop tabs, content panes, and mobile bottom nav in sync */
 window.switchTab = (tab, e) => {
-    window.currentTab = tab;
-    document.querySelectorAll(".nav-tab").forEach(b => b.classList.remove("active"));
-    if (e) e.target.classList.add("active");
-    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-    document.getElementById(tab + "Tab").classList.add("active");
-    if (tab === "analytics") setTimeout(initCharts, 100);
+  window.currentTab = tab;
+
+  // Desktop tabs
+  document.querySelectorAll(".nav-tab").forEach(b => b.classList.remove("active"));
+  if (e && e.target && e.target.classList.contains("nav-tab")) {
+    e.target.classList.add("active");
+  } else {
+    const desktopBtn = document.querySelector(`.nav-tab[onclick*="${tab}"]`);
+    if (desktopBtn) desktopBtn.classList.add("active");
+  }
+
+  // Content panes
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+  const pane = document.getElementById(`${tab}Tab`);
+  if (pane) pane.classList.add("active");
+
+  // Mobile bottom nav sync (requires #mb-nav-*)
+  ["dashboard", "budget", "recurring", "analytics"].forEach(id => {
+    const el = document.getElementById(`mb-nav-${id}`);
+    if (el) el.classList.toggle("active", id === tab);
+  });
+
+  // Ensure charts render after layout
+  if (tab === "analytics" && typeof initCharts === "function") {
+    setTimeout(initCharts, 100);
+  }
 };
+
+// =========================
+// Keep mobile bottom nav highlighted on first load/refresh
+// Place this once in the file (after the function is fine).
+// =========================
+window.addEventListener("DOMContentLoaded", () => {
+  const activePaneId =
+    document.querySelector(".tab-content.active")?.id?.replace("Tab", "") ||
+    "dashboard";
+
+  ["dashboard", "budget", "recurring", "analytics"].forEach(id => {
+    const el = document.getElementById(`mb-nav-${id}`);
+    if (el) el.classList.toggle("active", id === activePaneId);
+  });
+});
 
 // ==============================
 // Auth
@@ -228,16 +258,17 @@ onAuthStateChanged(auth, (user) => {
         showApp();
         loadTransactions();
         loadRecurring();
-        loadBudget();  // Add this
-        loadSavings(); // Add this
+        loadBudget();    // listen + hydrate toggles
+        loadSavings();   // listen + hydrate savings/goal
         processRecurringTransactions();
-        processMonthlyReset(); // Add this
+        processMonthlyReset();
     } else {
         window.currentUser = null;
         if (unsubscribeTransactions) unsubscribeTransactions();
         if (unsubscribeRecurring) unsubscribeRecurring();
-        if (unsubscribeBudget) unsubscribeBudget();  // Add this
-        if (unsubscribeSavings) unsubscribeSavings(); // Add this
+        if (unsubscribeBudget) unsubscribeBudget();
+        if (unsubscribeSavings) unsubscribeSavings();
+        __yearResetRan = false; // reset guard
         showAuth();
     }
 });
@@ -258,38 +289,93 @@ function showApp() {
 // Transactions
 // ==============================
 window.handleAddTransaction = async (e) => {
-    e.preventDefault();
-    const type = document.getElementById("transactionType").value;
-    const desc = document.getElementById("transactionDescription").value.trim();
-    const amount = parseFloat(document.getElementById("transactionAmount").value);
-    const cat = document.getElementById("transactionCategory").value;
-    if (isNaN(amount)) return alert("Enter a valid amount.");
-    try {
-        showLoading(true);
-        await addDoc(collection(db, "transactions"), {
-            userId: window.currentUser.uid,
-            type, description: desc, amount: amount, category: cat,
-            timestamp: Timestamp.now(),
-            createdAt: new Date().toISOString()
-        });
-        e.target.reset();
-    } finally { showLoading(false); }
+  e.preventDefault();
+
+  const typeEl = document.getElementById("transactionType");
+  const descEl = document.getElementById("transactionDescription");
+  const amtEl  = document.getElementById("transactionAmount");
+  const catEl  = document.getElementById("transactionCategory");
+  const addBtn = document.getElementById("addTxBtn");
+  const amountHint = document.getElementById("amountHint");
+
+  const type   = typeEl.value;
+  const desc   = (descEl.value || "").trim();
+  const amount = parseFloat(amtEl.value);
+  const cat    = catEl.value;
+
+  // show inline hint instead of popup
+  const badAmount = isNaN(amount) || amount <= 0;
+  amountHint.style.display = badAmount ? "inline" : "none";
+
+  // block if invalid or category still the placeholder
+  if (!desc || badAmount || !cat) {
+    if (!cat) {
+      toast('Select a category');
+      catEl.focus();
+    } else if (badAmount) {
+      // hint already shows next to amount, no popup needed
+      amtEl.focus();
+    } else {
+      toast('Enter a description');
+      descEl.focus();
+    }
+    return;
+}
+  try {
+    showLoading(true);
+    await addDoc(collection(db, "transactions"), {
+      userId: window.currentUser.uid,
+      type, description: desc, amount, category: cat,
+      timestamp: Timestamp.now(),
+      createdAt: new Date().toISOString()
+    });
+
+    // reset form and state
+    e.target.reset();
+  } finally {
+    showLoading(false);
+  }
+
+  // after reset, keep button disabled again
+  if (typeof refreshAddState === "function") refreshAddState();
 };
+// Enable the "Add Transaction" button only when all fields are valid
+const addTxBtn   = document.getElementById("addTxBtn");
+const txDesc     = document.getElementById("transactionDescription");
+const txAmount   = document.getElementById("transactionAmount");
+const txCategory = document.getElementById("transactionCategory");
+const amountHint = document.getElementById("amountHint");
+
+function refreshAddState() {
+  const amountVal = parseFloat(txAmount.value);
+  const ok =
+    (txDesc.value || "").trim().length > 0 &&
+    !isNaN(amountVal) && amountVal > 0 &&
+    !!txCategory.value;
+
+  addTxBtn.disabled = !ok;
+  amountHint.style.display = (!isNaN(amountVal) && amountVal > 0) ? "none" : "inline";
+}
+
+// keep it updated as the user types/changes
+["input","change"].forEach(evt => {
+  [txDesc, txAmount, txCategory].forEach(el => el && el.addEventListener(evt, refreshAddState));
+});
+refreshAddState();
+
 window.deleteTransaction = async (id, e) => {
   try {
     if (e) e.stopPropagation();
     if (!confirm("Delete transaction?")) return;
-
     showLoading(true);
-    await deleteDoc(doc(db, "transactions", id)); // fast path
+    await deleteDoc(doc(db, "transactions", id));
   } catch (err) {
-    // If it failed due to legacy ownership, try to claim then retry once
     if (err?.code === "permission-denied") {
       try {
         const claimed = await claimLegacyTransactionIfNeeded(id);
         if (claimed) {
           await deleteDoc(doc(db, "transactions", id));
-          return; // success after claim
+          return;
         }
       } catch (innerErr) {
         console.error("Claim failed:", innerErr);
@@ -303,7 +389,14 @@ window.deleteTransaction = async (id, e) => {
   }
 };
 
-
+  function toast(msg){
+    const t = document.getElementById('toast');
+    if(!t){ alert(msg); return; }  // fallback if the toast element is missing
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(()=> t.classList.remove('show'), 2500);
+  }
 // ==============================
 // Recurring
 // ==============================
@@ -317,7 +410,7 @@ window.handleAddRecurring = async (e) => {
     const description = document.getElementById("recurringDescription").value;
     const amount = parseFloat(document.getElementById("recurringAmount").value);
     const category = document.getElementById("recurringCategory").value;
-    const dayOfWeek = document.getElementById("recurringDay").value; // "monday"..."sunday" (optional)
+    const dayOfWeek = document.getElementById("recurringDay").value;
     const today = new Date();
 
     if (isNaN(amount)) return alert("Enter a valid amount.");
@@ -327,9 +420,9 @@ window.handleAddRecurring = async (e) => {
         await addDoc(collection(db, "recurring"), {
             userId: window.currentUser.uid,
             frequency, type, description, amount, category,
-            dayOfWeek: dayOfWeek || null, // weekly/biweekly
-            dayOfMonth: today.getDate(),  // monthly default
-            month: today.getMonth() + 1,  // yearly default
+            dayOfWeek: dayOfWeek || null,
+            dayOfMonth: today.getDate(),
+            month: today.getMonth() + 1,
             active: true,
             createdAt: today.toISOString(),
             lastProcessed: null
@@ -344,7 +437,6 @@ window.deleteRecurring = async (id, e) => {
   try {
     if (e) e.stopPropagation();
     if (!confirm("Delete recurring?")) return;
-
     showLoading(true);
     await deleteDoc(doc(db, "recurring", id));
   } catch (err) {
@@ -367,16 +459,14 @@ window.deleteRecurring = async (id, e) => {
   }
 };
 
-
-
 // ==============================
-// Auto Recurring Processor (Improved)
+// Auto Recurring Processor
 // ==============================
 async function processRecurringTransactions() {
     if (!window.currentUser) return;
     const today = new Date();
     const todayDay = today.toLocaleString("en-US", { weekday: "long" }).toLowerCase();
-    const todayDate = today.toISOString().split("T")[0]; // YYYY-MM-DD
+    const todayDate = today.toISOString().split("T")[0];
 
     const q = query(
         collection(db, "recurring"),
@@ -389,29 +479,19 @@ async function processRecurringTransactions() {
         const txn = docSnap.data();
         let shouldFire = false;
 
-        // WEEKLY
-        if (txn.frequency === "weekly" && txn.dayOfWeek === todayDay) {
-            shouldFire = true;
-        }
-
-        // BIWEEKLY (anchored to createdAt week)
+        if (txn.frequency === "weekly" && txn.dayOfWeek === todayDay) shouldFire = true;
         if (txn.frequency === "biweekly" && txn.dayOfWeek === todayDay) {
             const created = new Date(txn.createdAt);
             const weeksSinceCreated = Math.floor((today - created) / (1000 * 60 * 60 * 24 * 7));
             if (weeksSinceCreated % 2 === 0) shouldFire = true;
         }
-
-        // MONTHLY (on dayOfMonth)
         if (txn.frequency === "monthly" && txn.dayOfMonth) {
             if (today.getDate() === txn.dayOfMonth) shouldFire = true;
         }
-
-        // YEARLY (on month + dayOfMonth)
         if (txn.frequency === "yearly" && txn.month && txn.dayOfMonth) {
             if ((today.getMonth() + 1) === txn.month && today.getDate() === txn.dayOfMonth) shouldFire = true;
         }
 
-        // Fire if due and not processed today
         if (shouldFire && txn.lastProcessed !== todayDate) {
             await addDoc(collection(db, "transactions"), {
                 userId: window.currentUser.uid,
@@ -443,10 +523,12 @@ window.handleSetBudget = async (e) => {
     const uid = window.currentUser?.uid;
     if (!uid) throw new Error("not-signed-in");
 
-    // make sure the doc exists first, then merge
     const budgetRef = await ensureDoc(["budgets", uid], {
       userId: uid,
       monthlyLimit: 0,
+      yearResetTx: false,          // NEW: default
+      yearResetSavings: false,     // NEW: default
+      lastResetYear: new Date().getFullYear(), // NEW: default
       lastResetDate: new Date().toISOString(),
       createdAt: new Date().toISOString()
     });
@@ -454,7 +536,6 @@ window.handleSetBudget = async (e) => {
     await setDoc(budgetRef, {
       userId: uid,
       monthlyLimit,
-      lastResetDate: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }, { merge: true });
 
@@ -482,6 +563,7 @@ window.handleUpdateSavings = async (e) => {
     const savingsRef = await ensureDoc(["savings", uid], {
       userId: uid,
       totalSavings: 0,
+      savingsGoal: 0,            // NEW: default
       autoAddBalance: false,
       createdAt: new Date().toISOString()
     });
@@ -502,6 +584,32 @@ window.handleUpdateSavings = async (e) => {
     showLoading(false);
   }
 };
+
+// Savings Goal modal (NEW)
+window.openSavingsGoalModal = () => document.getElementById("savingsGoalModal").classList.add("active");
+window.closeSavingsGoalModal = () => document.getElementById("savingsGoalModal").classList.remove("active");
+
+window.handleUpdateSavingsGoal = async (e) => {
+  e.preventDefault();
+  const v = parseFloat(document.getElementById("savingsGoalInput").value);
+  if (isNaN(v) || v < 0) return alert("Enter a valid goal.");
+  try {
+    showLoading(true);
+    const uid = window.currentUser?.uid;
+    const ref = await ensureDoc(["savings", uid], {
+      userId: uid, totalSavings: 0, savingsGoal: 0, autoAddBalance: false, createdAt: new Date().toISOString()
+    });
+    await setDoc(ref, { savingsGoal: v, updatedAt: new Date().toISOString() }, { merge: true });
+    closeSavingsGoalModal();
+    e.target.reset();
+  } catch (err) {
+    showFriendlyError("signupError", err, "Failed to save savings goal.");
+  } finally {
+    showLoading(false);
+  }
+};
+
+// Toggle: auto-add
 window.toggleAutoSavings = async (checkbox) => {
   try {
     showLoading(true);
@@ -511,6 +619,7 @@ window.toggleAutoSavings = async (checkbox) => {
     const savingsRef = await ensureDoc(["savings", uid], {
       userId: uid,
       totalSavings: 0,
+      savingsGoal: 0,
       autoAddBalance: false,
       createdAt: new Date().toISOString()
     });
@@ -520,9 +629,53 @@ window.toggleAutoSavings = async (checkbox) => {
       updatedAt: new Date().toISOString()
     }, { merge: true });
   } catch (err) {
-    checkbox.checked = !checkbox.checked; // revert UI on failure
+    checkbox.checked = !checkbox.checked;
     showFriendlyError("signupError", err, "Failed to update auto-save setting.");
     alert("Failed to update auto-save setting.");
+  } finally {
+    showLoading(false);
+  }
+};
+
+// NEW: Toggles for yearly resets
+window.toggleYearResetTransactions = async (el) => {
+  try {
+    showLoading(true);
+    const uid = window.currentUser?.uid;
+    const ref = await ensureDoc(["budgets", uid], {
+      userId: uid,
+      monthlyLimit: 0,
+      yearResetTx: false,
+      yearResetSavings: false,
+      lastResetYear: new Date().getFullYear(),
+      createdAt: new Date().toISOString()
+    });
+    await setDoc(ref, { yearResetTx: !!el.checked, updatedAt: new Date().toISOString() }, { merge: true });
+    updateUI(); // refresh totals with filter
+  } catch (err) {
+    el.checked = !el.checked;
+    showFriendlyError("signupError", err, "Failed to update yearly reset setting.");
+  } finally {
+    showLoading(false);
+  }
+};
+
+window.toggleYearResetSavings = async (el) => {
+  try {
+    showLoading(true);
+    const uid = window.currentUser?.uid;
+    const ref = await ensureDoc(["budgets", uid], {
+      userId: uid,
+      monthlyLimit: 0,
+      yearResetTx: false,
+      yearResetSavings: false,
+      lastResetYear: new Date().getFullYear(),
+      createdAt: new Date().toISOString()
+    });
+    await setDoc(ref, { yearResetSavings: !!el.checked, updatedAt: new Date().toISOString() }, { merge: true });
+  } catch (err) {
+    el.checked = !el.checked;
+    showFriendlyError("signupError", err, "Failed to update yearly reset setting.");
   } finally {
     showLoading(false);
   }
@@ -534,7 +687,6 @@ async function processMonthlyReset() {
   const today = new Date();
   const lastReset = new Date(window.currentBudget.lastResetDate || 0);
 
-  // If we’re in a new month, handle rollover
   const isNewMonth =
     today.getMonth() !== lastReset.getMonth() ||
     today.getFullYear() !== lastReset.getFullYear();
@@ -542,17 +694,14 @@ async function processMonthlyReset() {
   if (!isNewMonth) return;
 
   try {
-    // Only move leftover if auto-add is enabled
     const autoAdd = !!window.currentSavings?.autoAddBalance;
 
     if (autoAdd) {
-      // Compute LAST MONTH net balance
       let income = 0, expenses = 0;
       const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
       window.transactions.forEach(t => {
-        // support Firestore Timestamp or createdAt ISO
         const tsMs =
           (t.timestamp?.seconds ? t.timestamp.seconds * 1000 : null) ??
           (typeof t.createdAt === "string" ? new Date(t.createdAt).getTime() : null);
@@ -566,34 +715,49 @@ async function processMonthlyReset() {
 
       const netBalance = income - expenses;
 
-      // Only add positive leftover to savings
       if (netBalance > 0) {
         const savingsRef = doc(db, "savings", window.currentUser.uid);
-        // Read current to get the latest total, then add
         const snap = await getDoc(savingsRef);
         const currentTotal = snap.exists() ? (Number(snap.data().totalSavings) || 0) : 0;
 
         await setDoc(
           savingsRef,
-          {
-            totalSavings: currentTotal + netBalance,
-            lastUpdated: new Date().toISOString()
-          },
+          { totalSavings: currentTotal + netBalance, lastUpdated: new Date().toISOString() },
           { merge: true }
         );
 
-        // 🔔 show the dashboard hint: "-$322.00 (Added to Savings)"
         announceRollover(netBalance);
       }
     }
 
-    // Update budget reset marker so we don’t re-run this again this month
     const budgetRef = doc(db, "budgets", window.currentUser.uid);
     await setDoc(budgetRef, { lastResetDate: new Date().toISOString() }, { merge: true });
   } catch (err) {
     console.error("Monthly rollover failed:", err);
-    // Silent fail; app keeps working
   }
+}
+
+// NEW: Yearly reset (savings zero-out on Jan 1 if enabled; no txn deletion)
+async function tryProcessYearlyReset() {
+  if (__yearResetRan) return;
+  if (!window.currentUser || !window.currentBudget || !window.currentSavings) return;
+
+  const nowYear = new Date().getFullYear();
+  const last = Number(window.currentBudget.lastResetYear) || nowYear;
+
+  if (nowYear > last) {
+    try {
+      if (window.currentBudget.yearResetSavings) {
+        const savingsRef = doc(db, "savings", window.currentUser.uid);
+        await setDoc(savingsRef, { totalSavings: 0, updatedAt: new Date().toISOString() }, { merge: true });
+      }
+      const budgetRef = doc(db, "budgets", window.currentUser.uid);
+      await setDoc(budgetRef, { lastResetYear: nowYear, updatedAt: new Date().toISOString() }, { merge: true });
+    } catch (e) {
+      console.error("Yearly reset failed:", e);
+    }
+  }
+  __yearResetRan = true;
 }
 
 // ---- Legacy claim helpers: attach userId once for old docs ----
@@ -605,15 +769,12 @@ async function claimLegacyTransactionIfNeeded(id) {
   const data = snap.data();
   const owner = data?.userId;
 
-  // already owned by current user
   if (owner === window.currentUser.uid) return false;
-
-  // only claim when empty/missing/invalid
   if (owner == null || owner === "" || typeof owner !== "string") {
     await setDoc(ref, { userId: window.currentUser.uid }, { merge: true });
     return true;
   }
-  return false; // belongs to someone else → do nothing
+  return false;
 }
 
 async function claimLegacyRecurringIfNeeded(id) {
@@ -636,14 +797,22 @@ function loadBudget() {
     if (!window.currentUser) return;
     const budgetRef = doc(db, "budgets", window.currentUser.uid);
     if (unsubscribeBudget) unsubscribeBudget();
-    unsubscribeBudget = onSnapshot(budgetRef, (snap) => {
+    unsubscribeBudget = onSnapshot(budgetRef, async (snap) => {
         if (snap.exists()) {
             window.currentBudget = snap.data();
+
+            // hydrate yearly toggles
+            const txT = document.getElementById("yearResetTxToggle");
+            const svT = document.getElementById("yearResetSavingsToggle");
+            if (txT) txT.checked = !!window.currentBudget.yearResetTx;
+            if (svT) svT.checked = !!window.currentBudget.yearResetSavings;
+
             updateBudgetDisplay();
         } else {
             window.currentBudget = null;
             updateBudgetDisplay();
         }
+        await tryProcessYearlyReset(); // run after budget present
     }, (error) => {
         console.error("Error loading budget:", error);
     });
@@ -653,24 +822,23 @@ function loadSavings() {
     if (!window.currentUser) return;
     const savingsRef = doc(db, "savings", window.currentUser.uid);
     if (unsubscribeSavings) unsubscribeSavings();
-    unsubscribeSavings = onSnapshot(savingsRef, (snap) => {
+    unsubscribeSavings = onSnapshot(savingsRef, async (snap) => {
         if (snap.exists()) {
             window.currentSavings = snap.data();
             updateSavingsDisplay();
-            // Update toggle state
             const toggle = document.getElementById("autoSavingsToggle");
-            if (toggle) toggle.checked = window.currentSavings.autoAddBalance || false;
+            if (toggle) toggle.checked = !!window.currentSavings.autoAddBalance;
         } else {
-            window.currentSavings = { totalSavings: 0, autoAddBalance: false };
+            window.currentSavings = { totalSavings: 0, autoAddBalance: false, savingsGoal: 0 };
             updateSavingsDisplay();
         }
+        await tryProcessYearlyReset(); // run after savings present
     }, (error) => {
         console.error("Error loading savings:", error);
     });
 }
 
 function updateBudgetDisplay() {
-  // Compute this month's expenses robustly (supports Timestamp OR createdAt)
   const nowMs = Date.now();
   const monthStart = startOfMonthMs(new Date(nowMs));
 
@@ -685,16 +853,14 @@ function updateBudgetDisplay() {
 
   document.getElementById("monthlyExpenses").textContent = `$${monthlyExpenses.toFixed(2)}`;
 
-  // If no budget set, keep your “Not Set” UI
   if (!window.currentBudget || isNaN(Number(window.currentBudget.monthlyLimit))) {
     document.getElementById("budgetRemaining").textContent = "Not Set";
     const bar = document.getElementById("budgetBar");
     if (bar) bar.style.width = "0%";
-    updateBudgetTransactionsList(); // still update the list
+    updateBudgetTransactionsList();
     return;
   }
 
-  // Remaining + progress
   const limit = Number(window.currentBudget.monthlyLimit) || 0;
   const remaining = limit - monthlyExpenses;
   document.getElementById("budgetRemaining").textContent =
@@ -709,22 +875,21 @@ function updateBudgetDisplay() {
     else bar.style.background = "var(--green)";
   }
 
-  updateBudgetTransactionsList(); // you already merged “expenses only, max 10”
+  updateBudgetTransactionsList();
 }
 
-
-// ★ CHANGE: helper to format a txn row with your exact styles/classes
+// helper to format a txn row with your exact styles/classes
 function renderTxnRow(t, i) {
     const categoryIcons = {
-        salary: "💼", investment: "📈", "other-income": "💰",
+        salary: "💼", investment: "📈", business: "🏢", "other-income": "💰",
         food: "🍔", transportation: "🚗", shopping: "🛍️",
         entertainment: "🎬", bills: "📄", healthcare: "🏥",
-        education: "📚", "other-expense": "📦"
+        education: "📚", subscriptions: "📱", "other-expense": "📦"
     };
     const ms = tsToMs(t.timestamp) ?? tsToMs(t.createdAt) ?? Date.now();
     const date = new Date(ms);
     const dStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const icon = categoryIcons[t.category] || "💰";
+    const icon = categoryIcons[t.category] || (t.type === "income" ? "💰" : "💸");
     return `
     <div class="transaction-item" style="animation-delay:${i * 0.05}s">
         <div class="transaction-info">
@@ -734,7 +899,7 @@ function renderTxnRow(t, i) {
                 <div class="transaction-meta"><span>${t.category.replace("-", " ")}</span><span>•</span><span>${dStr}</span></div>
             </div>
         </div>
-        <div class="transaction-amount ${t.type}">${t.type === "income" ? "+" : "-"}$${t.amount.toFixed(2)}</div>
+        <div class="transaction-amount ${t.type}">${t.type === "income" ? "+" : "-"}$${Number(t.amount).toFixed(2)}</div>
         <button type="button" class="delete-btn" onclick="deleteTransaction('${t.id}', event)">×</button>
     </div>`;
 }
@@ -743,13 +908,10 @@ function updateBudgetTransactionsList() {
     const list = document.getElementById("budgetTransactionsList");
     if (!list) return;
 
-    // ★ CHANGE: expenses only, already sorted desc by Firestore, then cap to 10
     const recentExpenses = window.transactions
-    .filter(t => t.type === "expense" && !t.isSystem && t.category !== "__rollover__")
-    .slice(0, BUDGET_RECENT_LIMIT);
+      .filter(t => t.type === "expense" && !t.isSystem && t.category !== "__rollover__")
+      .slice(0, BUDGET_RECENT_LIMIT);
 
-
-    
     if (recentExpenses.length === 0) {
         list.innerHTML = `<div class="empty-state"><p>No transactions yet</p></div>`;
         return;
@@ -758,8 +920,12 @@ function updateBudgetTransactionsList() {
 }
 
 function updateSavingsDisplay() {
-    const savings = window.currentSavings?.totalSavings || 0;
-    document.getElementById("totalSavings").textContent = `$${savings.toFixed(2)}`;
+    const total = Number(window.currentSavings?.totalSavings || 0);
+    const goal = Number(window.currentSavings?.savingsGoal || 0);
+    const totalEl = document.getElementById("totalSavings");
+    const goalEl = document.getElementById("savingsGoalDisplay");
+    if (totalEl) totalEl.textContent = `$${total.toFixed(2)}`;
+    if (goalEl) goalEl.textContent = `$${goal.toFixed(2)}`;
 }
 
 window.openSavingsModal = () => document.getElementById("savingsModal").classList.add("active");
@@ -794,44 +960,55 @@ function loadRecurring() {
 // ==============================
 // UI Updates (Summary, Lists, Charts)
 // ==============================
+function visibleTransactionsForDashboard() {
+  // WHY: If “Reset Income/Expenses at year end” is ON, only show current year in dashboard totals/lists.
+  const shouldFilterYear = !!window.currentBudget?.yearResetTx;
+  if (!shouldFilterYear) return window.transactions;
+
+  const y = new Date().getFullYear();
+  return window.transactions.filter(t => {
+    const ms = tsToMs(t.timestamp) ?? tsToMs(t.createdAt);
+    if (ms == null) return false;
+    const d = new Date(ms);
+    return d.getFullYear() === y;
+  });
+}
+
 function updateUI() {
     updateSummary();
     updateTransactionsList();
-    updateBudgetDisplay(); // keeps budget in sync
+    updateBudgetDisplay();
     if (window.currentTab === "analytics") updateCharts();
+    updateRolloverNote();
 }
 
 function updateSummary() {
+  const txns = visibleTransactionsForDashboard();
+
   let income = 0, expenses = 0;
-  window.transactions.forEach(t => {
+  txns.forEach(t => {
     if (t.type === "income") income += Number(t.amount) || 0;
     else expenses += Number(t.amount) || 0;
   });
   const balance = income - expenses;
 
-  // Normal totals
   document.getElementById("totalIncome").textContent = `$${income.toFixed(2)}`;
   document.getElementById("totalExpenses").textContent = `$${expenses.toFixed(2)}`;
 
   const balanceEl = document.getElementById("balance");
-
-  // If we just rolled over, show the explicit message for ~15s
   if (Date.now() < window.__rolloverNoteUntil && window.__rolloverAmount > 0) {
     const amt = window.__rolloverAmount.toFixed(2);
-    // Text only; no class/style changes so visuals remain identical
     balanceEl.textContent = `-$${amt} (Added to Savings)`;
   } else {
     balanceEl.textContent = `${balance >= 0 ? "$" : "-$"}${Math.abs(balance).toFixed(2)}`;
   }
 }
 
-
 function updateTransactionsList() {
     const list = document.getElementById("transactionsList");
-    let txns = window.transactions.filter(t => !t.isSystem && t.category !== "__rollover__");
+    let txns = visibleTransactionsForDashboard().filter(t => !t.isSystem && t.category !== "__rollover__");
     if (window.currentFilter !== "all") txns = txns.filter(t => t.type === window.currentFilter);
 
-    // ★ CHANGE: cap to latest 10 for dashboard list
     txns = txns.slice(0, DASHBOARD_RECENT_LIMIT);
 
     if (txns.length === 0) {
@@ -853,7 +1030,7 @@ function updateRecurringList() {
             <div class="recurring-info">
                 <div class="recurring-details">
                     <div class="recurring-description">${r.description}</div>
-                    <div class="recurring-amount">${r.type === "income" ? "+" : "-"}$${r.amount.toFixed(2)}</div>
+                    <div class="recurring-amount">${r.type === "income" ? "+" : "-"}$${Number(r.amount).toFixed(2)}</div>
                 </div>
                 <span class="recurring-frequency">${r.frequency}${r.dayOfWeek ? " • " + r.dayOfWeek.charAt(0).toUpperCase() + r.dayOfWeek.slice(1) : ""}</span>
             </div>
@@ -867,11 +1044,8 @@ function updateRecurringList() {
 // ==============================
 window.filterTransactions = (filter, e) => {
     window.currentFilter = filter;
-
-    // update active button UI
     document.querySelectorAll(".filter-btn").forEach(btn => btn.classList.remove("active"));
     if (e) e.target.classList.add("active");
-
     updateTransactionsList();
 };
 
@@ -880,11 +1054,8 @@ window.filterTransactions = (filter, e) => {
 // ==============================
 window.updateChartPeriod = (period, e) => {
     window.chartPeriod = period;
-
-    // update active button UI
     document.querySelectorAll(".chart-control-btn").forEach(btn => btn.classList.remove("active"));
     if (e) e.target.classList.add("active");
-
     updateCharts();
 };
 
@@ -898,7 +1069,6 @@ function initCharts() {
     if (financeChart) financeChart.destroy();
     if (categoryChart) categoryChart.destroy();
 
-    // Expect Chart.js to be loaded globally via <script> in index.html
     financeChart = new Chart(ctx1, {
         type: "line",
         data: { 
@@ -921,7 +1091,6 @@ function initCharts() {
     updateCharts();
 }
 
-// Put this small helper near your other helpers:
 function startOfPeriod(period, now = new Date()) {
   if (period === "week") {
     const s = new Date(now); s.setDate(now.getDate() - 6); s.setHours(0,0,0,0); return s;
@@ -938,8 +1107,7 @@ function updateCharts() {
   const now = new Date(); now.setHours(0,0,0,0);
   const start = startOfPeriod(window.chartPeriod, now);
 
-  // 1) Aggregate daily income/expense for the selected period
-  const daily = new Map(); // key: 'YYYY-MM-DD' -> {income, expenses}
+  const daily = new Map();
   for (const t of window.transactions) {
     const ms = (t.timestamp?.toMillis?.() ?? (t.timestamp?.seconds ? t.timestamp.seconds * 1000 : null))
               ?? (typeof t.createdAt === "string" ? new Date(t.createdAt).getTime() : null);
@@ -953,7 +1121,6 @@ function updateCharts() {
     else if (t.type === "expense") daily.get(key).expenses += Number(t.amount) || 0;
   }
 
-  // 2) Build a continuous date range from start..now
   const labels = [];
   const perDayIncome = [];
   const perDayExpenses = [];
@@ -967,7 +1134,6 @@ function updateCharts() {
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  // 3) Convert to running (cumulative) totals for smoother, intuitive lines
   const cumIncome = [];
   const cumExpenses = [];
   const cumNet = [];
@@ -980,7 +1146,6 @@ function updateCharts() {
     cumNet.push(accI - accE);
   }
 
-  // Update line chart
   financeChart.data.labels = labels;
   financeChart.data.datasets[0].label = "Income";
   financeChart.data.datasets[1].label = "Expenses";
@@ -990,7 +1155,6 @@ function updateCharts() {
   financeChart.data.datasets[2].data = cumNet;
   financeChart.update();
 
-  // 4) Category donut: totals within the period (expenses only)
   const catTotals = {};
   for (const t of window.transactions) {
     const ms = (t.timestamp?.toMillis?.() ?? (t.timestamp?.seconds ? t.timestamp.seconds * 1000 : null))
