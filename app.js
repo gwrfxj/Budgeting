@@ -92,12 +92,18 @@ function showFriendlyError(id, err, fallbackMsg) {
 }
 
 function announceRollover(amount) {
-  window.__rolloverAmount = Number(amount) || 0;
+  const amt = Number(amount) || 0;
+  window.__rolloverAmount = amt;
+
+  // 💬 NEW: friendly message
+  window.__rolloverMessage =
+    amt > 0
+      ? `+$${amt.toFixed(2)} (Added to Savings)`
+      : `No leftover to add to Savings`;
+
   // show the note for 15 seconds
   window.__rolloverNoteUntil = Date.now() + 15000;
 }
-
-
 
 // ==============================
 // UI Helpers
@@ -132,6 +138,17 @@ window.showSignup = () => {
     document.getElementById("signupForm").classList.remove("hidden");
     document.getElementById("loginForm").classList.add("hidden");
 };
+
+function updateRolloverNote() {
+  const el = document.getElementById("rolloverNote");
+  if (!el) return;
+
+  if (Date.now() < (window.__rolloverNoteUntil || 0) && window.__rolloverMessage) {
+    el.textContent = window.__rolloverMessage;
+  } else {
+    el.textContent = "";
+  }
+}
 
 // ==============================
 // Type & Frequency Selectors
