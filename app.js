@@ -258,11 +258,34 @@ window.handleAddTransaction = async (e) => {
         e.target.reset();
     } finally { showLoading(false); }
 };
-window.deleteTransaction = async (id) => {
+window.deleteTransaction = async (id, e) => {
+  try {
+    if (e) e.stopPropagation();
     if (!confirm("Delete transaction?")) return;
-    try { showLoading(true); await deleteDoc(doc(db, "transactions", id)); }
-    finally { showLoading(false); }
+
+    showLoading(true);
+    await deleteDoc(doc(db, "transactions", id)); // fast path
+  } catch (err) {
+    // If it failed due to legacy ownership, try to claim then retry once
+    if (err?.code === "permission-denied") {
+      try {
+        const claimed = await claimLegacyTransactionIfNeeded(id);
+        if (claimed) {
+          await deleteDoc(doc(db, "transactions", id));
+          return; // success after claim
+        }
+      } catch (innerErr) {
+        console.error("Claim failed:", innerErr);
+      }
+    }
+    console.error("Delete failed:", err);
+    showFriendlyError("signupError", err, "Failed to delete transaction.");
+    alert(`Failed to delete transaction${err?.code ? ` (${err.code})` : ""}.`);
+  } finally {
+    showLoading(false);
+  }
 };
+
 
 // ==============================
 // Recurring
@@ -300,11 +323,34 @@ window.handleAddRecurring = async (e) => {
         window.selectFrequency("weekly");
     } finally { showLoading(false); }
 };
-window.deleteRecurring = async (id) => {
+window.deleteRecurring = async (id, e) => {
+  try {
+    if (e) e.stopPropagation();
     if (!confirm("Delete recurring?")) return;
-    try { showLoading(true); await deleteDoc(doc(db, "recurring", id)); }
-    finally { showLoading(false); }
+
+    showLoading(true);
+    await deleteDoc(doc(db, "recurring", id));
+  } catch (err) {
+    if (err?.code === "permission-denied") {
+      try {
+        const claimed = await claimLegacyRecurringIfNeeded(id);
+        if (claimed) {
+          await deleteDoc(doc(db, "recurring", id));
+          return;
+        }
+      } catch (innerErr) {
+        console.error("Claim recurring failed:", innerErr);
+      }
+    }
+    console.error("Delete recurring failed:", err);
+    showFriendlyError("signupError", err, "Failed to delete recurring.");
+    alert(`Failed to delete recurring${err?.code ? ` (${err.code})` : ""}.`);
+  } finally {
+    showLoading(false);
+  }
 };
+
+
 
 // ==============================
 // Auto Recurring Processor (Improved)
@@ -533,6 +579,42 @@ async function processMonthlyReset() {
   }
 }
 
+// ---- Legacy claim helpers: attach userId once for old docs ----
+async function claimLegacyTransactionIfNeeded(id) {
+  const ref = doc(db, "transactions", id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return false;
+
+  const data = snap.data();
+  const owner = data?.userId;
+
+  // already owned by current user
+  if (owner === window.currentUser.uid) return false;
+
+  // only claim when empty/missing/invalid
+  if (owner == null || owner === "" || typeof owner !== "string") {
+    await setDoc(ref, { userId: window.currentUser.uid }, { merge: true });
+    return true;
+  }
+  return false; // belongs to someone else → do nothing
+}
+
+async function claimLegacyRecurringIfNeeded(id) {
+  const ref = doc(db, "recurring", id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return false;
+
+  const data = snap.data();
+  const owner = data?.userId;
+
+  if (owner === window.currentUser.uid) return false;
+  if (owner == null || owner === "" || typeof owner !== "string") {
+    await setDoc(ref, { userId: window.currentUser.uid }, { merge: true });
+    return true;
+  }
+  return false;
+}
+
 function loadBudget() {
     if (!window.currentUser) return;
     const budgetRef = doc(db, "budgets", window.currentUser.uid);
@@ -636,7 +718,7 @@ function renderTxnRow(t, i) {
             </div>
         </div>
         <div class="transaction-amount ${t.type}">${t.type === "income" ? "+" : "-"}$${t.amount.toFixed(2)}</div>
-        <button class="delete-btn" onclick="deleteTransaction('${t.id}')">×</button>
+        <button type="button" class="delete-btn" onclick="deleteTransaction('${t.id}', event)">×</button>
     </div>`;
 }
 
@@ -758,7 +840,7 @@ function updateRecurringList() {
                 </div>
                 <span class="recurring-frequency">${r.frequency}${r.dayOfWeek ? " • " + r.dayOfWeek.charAt(0).toUpperCase() + r.dayOfWeek.slice(1) : ""}</span>
             </div>
-            <button class="delete-btn" onclick="deleteRecurring('${r.id}')">×</button>
+            <button type="button" class="delete-btn" onclick="deleteRecurring('${r.id}', event)">×</button>
         </div>
     `).join("");
 }
