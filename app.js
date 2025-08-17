@@ -645,8 +645,9 @@ function updateBudgetTransactionsList() {
 
     // ★ CHANGE: expenses only, already sorted desc by Firestore, then cap to 10
     const recentExpenses = window.transactions
-        .filter(t => t.type === "expense")
-        .slice(0, BUDGET_RECENT_LIMIT); // 10 max
+    .filter(t => t.type === "expense" && !t.isSystem && t.category !== "__rollover__")
+    .slice(0, 10);
+
     
     if (recentExpenses.length === 0) {
         list.innerHTML = `<div class="empty-state"><p>No transactions yet</p></div>`;
@@ -726,7 +727,7 @@ function updateSummary() {
 
 function updateTransactionsList() {
     const list = document.getElementById("transactionsList");
-    let txns = window.transactions;
+    let txns = window.transactions.filter(t => !t.isSystem && t.category !== "__rollover__");
     if (window.currentFilter !== "all") txns = txns.filter(t => t.type === window.currentFilter);
 
     // ★ CHANGE: cap to latest 10 for dashboard list
