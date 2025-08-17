@@ -154,6 +154,8 @@
       <!-- Navigation Tabs -->
       <div class="nav-tabs">
         <button class="nav-tab active" onclick="switchTab('dashboard', event)">📊 Dashboard</button>
+        <!-- RENAMED TEXT ONLY -->
+        <button class="nav-tab" onclick="switchTab('budget', event)">💰 Budget/Savings</button>
         <button class="nav-tab" onclick="switchTab('recurring', event)">🔄 Recurring</button>
         <button class="nav-tab" onclick="switchTab('analytics', event)">📈 Analytics</button>
       </div>
@@ -280,75 +282,165 @@
           </div>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- Recurring Transaction Modal -->
-  <div id="recurringModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Add Recurring Transaction</h3>
-        <button class="modal-close" onclick="closeRecurringModal()">×</button>
-      </div>
-      <form onsubmit="handleAddRecurring(event)">
-        <label>Type</label>
-        <div class="type-toggle">
-          <button type="button" class="type-btn income" id="recurringIncomeBtn" onclick="selectRecurringType('income')">💰 Income</button>
-          <button type="button" class="type-btn expense active" id="recurringExpenseBtn" onclick="selectRecurringType('expense')">💸 Expense</button>
-        </div>
-        <input type="hidden" id="recurringType" value="expense" required>
+      <!-- Budget Tab -->
+      <div id="budgetTab" class="tab-content">
+        <div style="padding: 30px;">
+          <!-- Budget Overview Cards -->
+          <div class="budget-overview">
+            <div class="budget-card">
+              <div class="budget-card-header">
+                <h4>📊 Monthly Budget</h4>
+                <button class="edit-budget-btn" onclick="openBudgetModal()">Edit</button>
+              </div>
+              <div class="budget-amount" id="budgetRemaining">Not Set</div>
+              <div class="budget-label">Remaining This Month</div>
+              <div class="budget-progress">
+                <div class="budget-progress-bar" id="budgetBar"></div>
+              </div>
+            </div>
 
-        <div class="form-group">
-          <label for="recurringDescription">Description</label>
-          <input type="text" id="recurringDescription" placeholder="e.g., Netflix, Salary" required>
-        </div>
+            <div class="budget-card">
+              <div class="budget-card-header">
+                <h4>💸 This Month</h4>
+              </div>
+              <div class="budget-amount expense" id="monthlyExpenses">$0.00</div>
+              <div class="budget-label">Total Expenses</div>
+            </div>
 
-        <div class="form-group">
-          <label for="recurringAmount">Amount</label>
-          <input type="number" id="recurringAmount" placeholder="0.00" step="0.01" min="0.01" required>
-        </div>
-
-        <div class="form-group">
-          <label>Frequency</label>
-          <div class="frequency-options">
-            <button type="button" class="frequency-btn active" onclick="selectFrequency('weekly', event)">Weekly</button>
-            <button type="button" class="frequency-btn" onclick="selectFrequency('biweekly', event)">Bi-weekly</button>
-            <button type="button" class="frequency-btn" onclick="selectFrequency('monthly', event)">Monthly</button>
-            <button type="button" class="frequency-btn" onclick="selectFrequency('yearly', event)">Yearly</button>
+            <div class="budget-card">
+              <div class="budget-card-header">
+                <h4>🏦 Savings</h4>
+                <button class="edit-budget-btn" onclick="openSavingsModal()">Edit</button>
+              </div>
+              <div class="budget-amount income" id="totalSavings">$0.00</div>
+              <!-- RENAMED LABEL ONLY -->
+              <div class="budget-label">Total Saved</div>
+              <div class="budget-toggle">
+                <label class="toggle-label">
+                  <input type="checkbox" id="autoSavingsToggle" onchange="toggleAutoSavings(this)">
+                  <span class="toggle-slider"></span>
+                  <!-- RENAMED TOGGLE TEXT ONLY -->
+                  <span class="toggle-text">Auto-add to monthly budget (from net balance)</span>
+                </label>
+              </div>
+            </div>
           </div>
-          <input type="hidden" id="recurringFrequency" value="weekly" required>
+
+          <!-- Recent Expenses in Budget Tab -->
+          <div class="budget-transactions">
+            <h3>Recent Expenses</h3>
+            <div id="budgetTransactionsList">
+              <div class="empty-state"><p>No transactions yet</p></div>
+            </div>
+          </div>
         </div>
+      </div>
 
-  <div class="form-group" id="dayOfWeekGroup">
-    <label for="recurringDay">Day of Week</label>
-    <select id="recurringDay">
-      <option value="">Select day</option>
-      <option value="sunday">Sunday</option>
-      <option value="monday">Monday</option>
-      <option value="tuesday">Tuesday</option>
-      <option value="wednesday">Wednesday</option>
-      <option value="thursday">Thursday</option>
-      <option value="friday">Friday</option>
-      <option value="saturday">Saturday</option>
-    </select>
-  </div>
+      <!-- Recurring Transaction Modal -->
+      <div id="recurringModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Add Recurring Transaction</h3>
+            <button class="modal-close" onclick="closeRecurringModal()">×</button>
+          </div>
+          <form onsubmit="handleAddRecurring(event)">
+            <label>Type</label>
+            <div class="type-toggle">
+              <button type="button" class="type-btn income" id="recurringIncomeBtn" onclick="selectRecurringType('income')">💰 Income</button>
+              <button type="button" class="type-btn expense active" id="recurringExpenseBtn" onclick="selectRecurringType('expense')">💸 Expense</button>
+            </div>
+            <input type="hidden" id="recurringType" value="expense" required>
 
-        <div class="form-group">
-          <label for="recurringCategory">Category</label>
-          <select id="recurringCategory" required>
-            <option value="">Select category</option>
-            <option value="salary">💼 Salary</option>
-            <option value="investment">📈 Investment</option>
-            <option value="other-income">💰 Other Income</option>
-            <option value="bills">📄 Bills & Utilities</option>
-            <option value="entertainment">🎬 Entertainment</option>
-            <option value="subscriptions">📱 Subscriptions</option>
-            <option value="other-expense">📦 Other</option>
-          </select>
+            <div class="form-group">
+              <label for="recurringDescription">Description</label>
+              <input type="text" id="recurringDescription" placeholder="e.g., Netflix, Salary" required>
+            </div>
+
+            <div class="form-group">
+              <label for="recurringAmount">Amount</label>
+              <input type="number" id="recurringAmount" placeholder="0.00" step="0.01" min="0.01" required>
+            </div>
+
+            <div class="form-group">
+              <label>Frequency</label>
+              <div class="frequency-options">
+                <button type="button" class="frequency-btn active" onclick="selectFrequency('weekly', event)">Weekly</button>
+                <button type="button" class="frequency-btn" onclick="selectFrequency('biweekly', event)">Bi-weekly</button>
+                <button type="button" class="frequency-btn" onclick="selectFrequency('monthly', event)">Monthly</button>
+                <button type="button" class="frequency-btn" onclick="selectFrequency('yearly', event)">Yearly</button>
+              </div>
+              <input type="hidden" id="recurringFrequency" value="weekly" required>
+            </div>
+
+            <div class="form-group" id="dayOfWeekGroup">
+              <label for="recurringDay">Day of Week</label>
+              <select id="recurringDay">
+                <option value="">Select day</option>
+                <option value="sunday">Sunday</option>
+                <option value="monday">Monday</option>
+                <option value="tuesday">Tuesday</option>
+                <option value="wednesday">Wednesday</option>
+                <option value="thursday">Thursday</option>
+                <option value="friday">Friday</option>
+                <option value="saturday">Saturday</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="recurringCategory">Category</label>
+              <select id="recurringCategory" required>
+                <option value="">Select category</option>
+                <option value="salary">💼 Salary</option>
+                <option value="investment">📈 Investment</option>
+                <option value="other-income">💰 Other Income</option>
+                <option value="bills">📄 Bills & Utilities</option>
+                <option value="entertainment">🎬 Entertainment</option>
+                <option value="subscriptions">📱 Subscriptions</option>
+                <option value="other-expense">📦 Other</option>
+              </select>
+            </div>
+
+            <button type="submit" class="btn-purple" style="width: 100%;">Add Recurring Transaction</button>
+          </form>
         </div>
+      </div>
 
-        <button type="submit" class="btn-purple" style="width: 100%;">Add Recurring Transaction</button>
-      </form>
+      <!-- Budget Setting Modal -->
+      <div id="budgetModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Set Monthly Budget</h3>
+            <button class="modal-close" onclick="closeBudgetModal()">×</button>
+          </div>
+          <form onsubmit="handleSetBudget(event)">
+            <div class="form-group">
+              <label for="monthlyBudgetLimit">Monthly Spending Limit</label>
+              <input type="number" id="monthlyBudgetLimit" placeholder="0.00" step="0.01" min="0.01" required>
+            </div>
+            <button type="submit" class="btn-purple" style="width: 100%;">Set Budget</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Savings Update Modal -->
+      <div id="savingsModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Update Savings</h3>
+            <button class="modal-close" onclick="closeSavingsModal()">×</button>
+          </div>
+          <form onsubmit="handleUpdateSavings(event)">
+            <div class="form-group">
+              <label for="savingsAmount">Total Savings Amount</label>
+              <input type="number" id="savingsAmount" placeholder="0.00" step="0.01" min="0" required>
+              <small style="color: var(--gold); opacity: 0.7;">Enter your current total savings</small>
+            </div>
+            <button type="submit" class="btn-purple" style="width: 100%;">Update Savings</button>
+          </form>
+        </div>
+      </div>
+
     </div>
   </div>
 
