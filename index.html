@@ -157,24 +157,6 @@
         </div>
       </div>
 
-
-    <!-- Mobile bottom nav (phones only) -->
-    <nav class="mobile-bottom-nav" aria-label="Primary mobile navigation">
-      <div class="nav-row">
-        <button id="mb-nav-dashboard" onclick="switchTab('dashboard', event)">
-          <span class="ico">📊</span><span>Dashboard</span>
-        </button>
-        <button id="mb-nav-budget" onclick="switchTab('budget', event)">
-          <span class="ico">💰</span><span>Budget</span>
-        </button>
-        <button id="mb-nav-recurring" onclick="switchTab('recurring', event)">
-          <span class="ico">🔄</span><span>Recurring</span>
-        </button>
-        <button id="mb-nav-analytics" onclick="switchTab('analytics', event)">
-          <span class="ico">📈</span><span>Analytics</span>
-        </button>
-      </div>
-    </nav>
       <!-- Navigation Tabs -->
       <nav class="nav-tabs" aria-label="Primary">
         <button class="nav-tab active" onclick="switchTab('dashboard', event)">📊 Dashboard</button>
@@ -347,12 +329,9 @@
                 </div>
               </div>
 
-              <div class="budget-amount income" id="totalSavings">$0.00</div>
-              <div class="budget-label">
-                <span>Total Saved</span>
-                <span aria-hidden="true"> • </span>
-                <strong>Savings Goal: <span id="savingsGoalDisplay">$0.00</span></strong><!-- NEW -->
-              </div>
+                <div class="budget-amount income" id="totalSavings">$0.00</div>
+                <div class="budget-label">Total Saved</div>
+                <div class="budget-label"><strong>Savings Goal: <span id="savingsGoalDisplay">$0.00</span></strong></div>
 
               <div class="budget-toggle">
                 <label class="toggle-label">
