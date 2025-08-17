@@ -161,8 +161,14 @@ window.selectRecurringType = (type) => {
 window.selectFrequency = (freq, e) => {
     window.selectedFrequency = freq;
     document.getElementById("recurringFrequency").value = freq;
+
+    // remove "active" from all buttons
     document.querySelectorAll(".frequency-btn").forEach(b => b.classList.remove("active"));
-    if (e) e.target.classList.add("active");
+
+    // add "active" to the clicked button
+    if (e && e.currentTarget) {
+        e.currentTarget.classList.add("active");
+    }
 };
 
 // ==============================
